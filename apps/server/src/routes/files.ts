@@ -88,7 +88,7 @@ export function fileRoutes({ db, blobs, raster }: AppDeps) {
     const projectId = await access(c, true);
     const sha = c.req.param("sha");
     const file = await blobs.find(projectId, sha);
-    if (!file || file.mime !== "application/pdf") throw notFound("PDF");
+    if (file?.mime !== "application/pdf") throw notFound("PDF");
     const { page, dpi } = await readBody(c, RasterizeRequest);
     const data = new Uint8Array(await readFile(blobs.pathOf(sha)));
     const pages = await raster.pdfInfo(data);
@@ -116,7 +116,7 @@ export function fileRoutes({ db, blobs, raster }: AppDeps) {
     const projectId = await access(c, false);
     const sha = c.req.param("sha");
     const file = await blobs.find(projectId, sha);
-    if (!file || file.mime !== "application/pdf") throw notFound("PDF");
+    if (file?.mime !== "application/pdf") throw notFound("PDF");
     const data = new Uint8Array(await readFile(blobs.pathOf(sha)));
     const r = await raster.rasterize(data, Number(c.req.param("page")), 24);
     return c.body(r.png as Uint8Array<ArrayBuffer>, 200, {
