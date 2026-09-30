@@ -3,6 +3,7 @@ import {
   Badge,
   Button,
   Container,
+  FileButton,
   Group,
   Menu,
   Table,
@@ -14,15 +15,18 @@ import {
   IconCopy,
   IconDoorExit,
   IconDots,
+  IconDownload,
   IconPencil,
   IconPlus,
   IconShare,
   IconTrash,
+  IconUpload,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Project } from "@wifi-planner/api-contract";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
+import { api } from "../api/client";
 import {
   keys,
   useCreateProject,
@@ -81,9 +85,15 @@ export function ProjectsPage() {
     <Container size="lg">
       <Group justify="space-between" mb="md">
         <Title order={2}>プロジェクト</Title>
-        <Button leftSection={<IconPlus size={16} />} onClick={() => setDialog({ kind: "create" })}>
-          新規作成
-        </Button>
+        <Group gap="xs">
+          <ImportButton />
+          <Button
+            leftSection={<IconPlus size={16} />}
+            onClick={() => setDialog({ kind: "create" })}
+          >
+            新規作成
+          </Button>
+        </Group>
       </Group>
 
       {!isPending && projects.length === 0 ? (
@@ -210,6 +220,14 @@ function ProjectMenu(props: {
         <Menu.Item leftSection={<IconCopy size={14} />} onClick={props.onDuplicate}>
           複製
         </Menu.Item>
+        <Menu.Item
+          leftSection={<IconDownload size={14} />}
+          component="a"
+          href={`/api/projects/${project.id}/export`}
+          download
+        >
+          エクスポート
+        </Menu.Item>
         {project.role === "owner" ? (
           <>
             <Menu.Item leftSection={<IconShare size={14} />} onClick={props.onShare}>
@@ -230,5 +248,37 @@ function ProjectMenu(props: {
         )}
       </Menu.Dropdown>
     </Menu>
+  );
+}
+
+/** エクスポートしたファイルからプロジェクトを作る（FR-1.5） */
+function ImportButton() {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  return (
+    <FileButton
+      accept=".zip,application/zip"
+      onChange={async (file) => {
+        if (!file) return;
+        setLoading(true);
+        try {
+          const project = await api.upload<Project>("/projects/import", file);
+          await qc.invalidateQueries({ queryKey: keys.projects });
+          notifyDone(`「${project.name}」をインポートしました`);
+          navigate(`/projects/${project.id}`);
+        } catch (e) {
+          notifyError(e);
+        } finally {
+          setLoading(false);
+        }
+      }}
+    >
+      {(p) => (
+        <Button {...p} variant="default" leftSection={<IconUpload size={16} />} loading={loading}>
+          インポート
+        </Button>
+      )}
+    </FileButton>
   );
 }

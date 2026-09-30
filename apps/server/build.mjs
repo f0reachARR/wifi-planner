@@ -16,7 +16,11 @@ const externalizeDependencies = {
 };
 
 const result = await build({
-  entryPoints: { main: "src/main.ts", "raster-worker": "src/raster-worker.ts" },
+  entryPoints: {
+    main: "src/main.ts",
+    "raster-worker": "src/raster-worker.ts",
+    backup: "src/backup.ts",
+  },
   outdir: "dist",
   bundle: true,
   platform: "node",

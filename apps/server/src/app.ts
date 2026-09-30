@@ -15,6 +15,7 @@ import { extractionRoutes } from "./routes/extractions.js";
 import { fileRoutes } from "./routes/files.js";
 import { photoRoutes } from "./routes/photos.js";
 import { projectRoutes } from "./routes/projects.js";
+import { transferRoutes } from "./routes/transfer.js";
 import { userRoutes } from "./routes/users.js";
 import type { RasterPool } from "./workers.js";
 
@@ -63,6 +64,7 @@ export function createApp(deps: AppDeps) {
   api.route("/ap-models", apModelRoutes(deps));
   api.route("/projects", extractionRoutes(deps));
   api.route("/projects", photoRoutes(deps));
+  api.route("/projects", transferRoutes(deps));
 
   // 未知の API には JSON の 404 を返し、SPA の index.html に落とさない
   api.all("*", (c) => c.json({ error: "見つかりません" }, 404));

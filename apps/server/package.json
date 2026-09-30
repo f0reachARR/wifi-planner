@@ -31,6 +31,7 @@
     "@wifi-planner/wall-extraction": "workspace:*",
     "drizzle-orm": "^0.45.3",
     "exif-reader": "^2.0.3",
+    "fflate": "^0.8.3",
     "hono": "^4.13.12",
     "pdfjs-dist": "^6.3.289",
     "piscina": "^5.3.2",

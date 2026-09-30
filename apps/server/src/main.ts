@@ -11,6 +11,7 @@ import { openDb } from "./db/client.js";
 import { dbDocStore } from "./docstore.js";
 import { AccessEvents } from "./events.js";
 import { BlobStore } from "./files/blobstore.js";
+import { runMaintenance } from "./maintenance.js";
 import { createRasterPool } from "./workers.js";
 
 const config = loadConfig();
@@ -22,6 +23,15 @@ const events = new AccessEvents();
 const collab = createCollab({ db, docs: dbDocStore(db), events });
 const blobs = new BlobStore(db, path.join(config.dataDir, "uploads"));
 const raster = createRasterPool();
+
+// 保守の処理は起動時と、その後 1 日ごとに行う
+const maintain = () =>
+  runMaintenance(db, blobs)
+    .then((r) => (r.purgedProjects || r.removedBlobs) && console.log("保守の処理", r))
+    .catch((e) => console.error("保守の処理に失敗", e));
+void maintain();
+const maintenanceTimer = setInterval(maintain, 24 * 60 * 60 * 1000);
+maintenanceTimer.unref();
 const app = createApp({ db, docs: collab.liveDocs, events, blobs, raster, config });
 collab.mount(app);
 
