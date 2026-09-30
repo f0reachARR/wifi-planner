@@ -70,6 +70,7 @@ export type Alignment = {
 /**
  * 基準点 2 点の対応から、フロア座標をワールド座標（基準フロアのフロア座標）に移す変換を求める（FR-3.2）。
  * スケールは各フロアで校正済みとし、回転と平行移動だけを求める。点 a を一致させ、a→b の向きを揃える。
+ * 引数はフロア座標で渡す。`Floor.alignment` は図面座標で保存しているので、先に `planTransform` で変換する。
  */
 export function alignFloor(
   own: { a: Vec2; b: Vec2 },
