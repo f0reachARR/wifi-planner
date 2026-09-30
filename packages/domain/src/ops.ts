@@ -8,6 +8,7 @@ import {
   Ap as ApSchema,
   type Floor,
   type Material,
+  type PhotoPin,
   type ProjectSettings,
   type RadioConfig,
   type Wall,
@@ -348,4 +349,32 @@ export function nextApName(base: string, existing: ReadonlySet<string>): string 
   let n = m ? Number(m[2]) + 1 : 2;
   while (existing.has(`${prefix}${n}`)) n++;
   return `${prefix}${n}`;
+}
+
+// ---- 現場写真（FR-9.1〜9.3） ----
+
+function pinsOf(ydoc: Y.Doc, floorId: string) {
+  const pins = floorCollection(ydoc, floorId, "photoPins");
+  if (!pins) throw new Error(`フロアがない: ${floorId}`);
+  return pins;
+}
+
+export function addPhotoPin(ydoc: Y.Doc, floorId: string, pin: PhotoPin): string {
+  const id = newId();
+  setEntity(pinsOf(ydoc, floorId) as YMap, id, pin);
+  return id;
+}
+
+export function updatePhotoPin(
+  ydoc: Y.Doc,
+  floorId: string,
+  pinId: string,
+  patch: Partial<PhotoPin>,
+): void {
+  const map = pinsOf(ydoc, floorId).get(pinId);
+  if (map) updateFields(map, patch);
+}
+
+export function deletePhotoPin(ydoc: Y.Doc, floorId: string, pinId: string): void {
+  pinsOf(ydoc, floorId).delete(pinId);
 }

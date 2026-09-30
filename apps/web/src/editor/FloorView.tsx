@@ -23,6 +23,7 @@ import { useHotkeys } from "@mantine/hooks";
 import {
   IconAccessPoint,
   IconAdjustments,
+  IconCamera,
   IconCrop,
   IconDoor,
   IconFileImport,
@@ -54,6 +55,7 @@ import {
 } from "@wifi-planner/domain";
 import {
   addAp,
+  addPhotoPin,
   defaultRadios,
   nextApName,
   putApModelSnapshot,
@@ -83,6 +85,8 @@ import { MaterialsModal } from "./MaterialsModal";
 import { OverlayFloor } from "./overlay/OverlayLayer";
 import { similarityNode } from "./overlay/similarity";
 import { PlanImportModal } from "./PlanImportModal";
+import { PhotoLayer, type PinEntry } from "./photos/PhotoLayer";
+import { PhotoPinDrawer } from "./photos/PhotoPinDrawer";
 import { useWallTools } from "./walls/useWallTools";
 import { WallInspector } from "./walls/WallInspector";
 import { WallLayer } from "./walls/WallLayer";
@@ -95,6 +99,7 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
   const [tool, setTool] = useState<CanvasTool>("select");
   const [importing, setImporting] = useState(false);
   const [editingMaterials, setEditingMaterials] = useState(false);
+  const [adjustOpen, setAdjustOpen] = useState(false);
   const [calibration, setCalibration] = useState<{ a: Vec2; b: Vec2 }>();
   const plan = floor.plan;
   const materials = doc?.materials ?? {};
@@ -182,6 +187,34 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
   // 壁の自動抽出（FR-4.1〜4.3）
   const extraction = useExtraction(session.projectId, floor.plan);
   const [extractionOpen, setExtractionOpen] = useState(false);
+  // 現場写真のピン（FR-9.1〜9.3）
+  const pins: PinEntry[] = useMemo(
+    () => Object.entries(floor.photoPins).map(([id, p]) => ({ ...p, id })),
+    [floor.photoPins],
+  );
+  const [openPinId, setOpenPinId] = useState<string>();
+  const photoController: ToolController | undefined =
+    tool === "photo"
+      ? {
+          cursor: "pointer",
+          onDown: (e) => {
+            const hit = pins.find(
+              (p) => Math.hypot(p.position.x - e.p.x, p.position.y - e.p.y) <= 12 * e.px,
+            );
+            if (hit) {
+              setOpenPinId(hit.id);
+              return;
+            }
+            if (readOnly) return;
+            let id = "";
+            session.mutate((ydoc) => {
+              id = addPhotoPin(ydoc, floor.id, { position: e.p, photos: [] });
+            });
+            if (id) setOpenPinId(id);
+          },
+        }
+      : undefined;
+
   const candidateController: ToolController | undefined =
     extractionOpen && extraction.candidates.length > 0
       ? {
@@ -223,6 +256,13 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
     ],
     ["Enter", () => tool === "wall" && wallTools.finishDrawing()],
     ["V", () => setTool("select")],
+    [
+      "mod+A",
+      () => {
+        setTool("select");
+        wallTools.setSelection([...walls.map((w) => w.id), ...aps.map((a) => a.id)]);
+      },
+    ],
     ["H", () => setTool("pan")],
     ...(readOnly ? [] : ([["W", () => setTool("wall")]] as [string, () => void][])),
   ]);
@@ -260,7 +300,7 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
         <PlanCanvas
           floor={floor}
           tool={tool}
-          controller={candidateController ?? wallTools.controller}
+          controller={candidateController ?? photoController ?? wallTools.controller}
           onPointerMove={hoverStore.set}
           handlers={{
             onCalibrate: (a, b) => setCalibration({ a, b }),
@@ -327,6 +367,12 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                 px={px}
                 planRotationDeg={plan.rotationDeg}
               />
+              <PhotoLayer
+                pins={pins}
+                px={px}
+                planRotationDeg={plan.rotationDeg}
+                activeId={openPinId}
+              />
               {extractionOpen && (
                 <CandidateLayer
                   candidates={extraction.candidates}
@@ -367,6 +413,10 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                   value: "pan",
                   label: <ToolLabel icon={<IconHandStop size={14} />} text="移動" />,
                 },
+                {
+                  value: "photo",
+                  label: <ToolLabel icon={<IconCamera size={14} />} text="写真" />,
+                },
                 ...(readOnly
                   ? []
                   : [
@@ -386,25 +436,21 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                         value: "ap",
                         label: <ToolLabel icon={<IconAccessPoint size={14} />} text="AP" />,
                       },
-                      {
-                        value: "calibrate",
-                        label: <ToolLabel icon={<IconRuler2 size={14} />} text="スケール校正" />,
-                      },
-                      {
-                        value: "align",
-                        label: <ToolLabel icon={<IconStack2 size={14} />} text="位置合わせ" />,
-                      },
-                      {
-                        value: "crop",
-                        label: <ToolLabel icon={<IconCrop size={14} />} text="トリミング" />,
-                      },
                     ]),
               ]}
             />
             {!readOnly && (
-              <Popover position="bottom-start" shadow="md" withinPortal>
+              <Popover
+                position="bottom-start"
+                shadow="md"
+                withinPortal
+                opened={adjustOpen}
+                onChange={setAdjustOpen}
+                transitionProps={{ duration: 0 }}
+              >
                 <Popover.Target>
                   <Button
+                    onClick={() => setAdjustOpen((o) => !o)}
                     size="compact-xs"
                     variant="subtle"
                     leftSection={<IconAdjustments size={14} />}
@@ -414,6 +460,29 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                 </Popover.Target>
                 <Popover.Dropdown>
                   <Stack gap="xs">
+                    {/* 図面そのものを扱う道具。使う頻度が低いので、道具のバーを短くするためにここへ置く */}
+                    <Group gap={4}>
+                      {(
+                        [
+                          ["calibrate", "スケール校正", <IconRuler2 key="c" size={14} />],
+                          ["align", "位置合わせ", <IconStack2 key="a" size={14} />],
+                          ["crop", "トリミング", <IconCrop key="t" size={14} />],
+                        ] as const
+                      ).map(([value, label, icon]) => (
+                        <Button
+                          key={value}
+                          size="compact-xs"
+                          variant={tool === value ? "filled" : "light"}
+                          leftSection={icon}
+                          onClick={() => {
+                            setTool(value);
+                            setAdjustOpen(false);
+                          }}
+                        >
+                          {label}
+                        </Button>
+                      ))}
+                    </Group>
                     <Group gap={4}>
                       <Tooltip label="左に 90 度回転">
                         <ActionIcon
@@ -811,6 +880,11 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
         </Stack>
       </Box>
       <MaterialsModal opened={editingMaterials} onClose={() => setEditingMaterials(false)} />
+      <PhotoPinDrawer
+        floorId={floor.id}
+        pinId={openPinId}
+        onClose={() => setOpenPinId(undefined)}
+      />
       <ApTableModal opened={showApTable} onClose={() => setShowApTable(false)} />
       <PropagationSettingsModal
         opened={editingPropagation}

@@ -68,14 +68,27 @@ export async function canvasBox(page: Page) {
   return box;
 }
 
-/** 道具のバーの道具を選ぶ。道具のバーはメイン領域の最初のラジオボタンの組 */
+const PLAN_TOOLS = new Set(["スケール校正", "位置合わせ", "トリミング"]);
+
+/** 道具を選ぶ。図面を扱う道具は「図面の調整」の中、そのほかは道具のバー（メイン領域の最初のラジオボタンの組）にある */
 export async function tool(page: Page, name: string) {
+  if (PLAN_TOOLS.has(name)) {
+    await page.getByRole("button", { name: "図面の調整" }).click();
+    await page.getByRole("dialog").getByRole("button", { name, exact: true }).click();
+    return;
+  }
   await page
     .getByRole("main")
     .getByRole("radiogroup")
     .first()
     .getByText(name, { exact: true })
     .click();
+}
+
+/** 表示中のフロアの壁と AP をすべて選ぶ */
+export async function selectAll(page: Page) {
+  await page.getByLabel("図面").focus();
+  await page.keyboard.press("Control+a");
 }
 
 /** キャンバス上の相対位置 (fx, fy) を画面座標にする */

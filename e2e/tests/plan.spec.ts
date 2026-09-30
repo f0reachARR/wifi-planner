@@ -56,7 +56,6 @@ test("図面の取り込み、スケール校正、回転、トリミング", as
   const bobPage = await newUserPage(browser, "plan-bob", "bob-password");
   await bobPage.goto(`/projects/${project.id}`);
   await expect(bobPage.getByText(/スケール：1 m ＝ 図面上/)).toBeVisible();
-  await expect(bobPage.getByText("スケール校正", { exact: true })).toHaveCount(0);
   await expect(bobPage.getByRole("button", { name: "図面の調整" })).toHaveCount(0);
 
   // alice のカーソルが bob の画面に出ているかは、スクリーンショットで確かめる

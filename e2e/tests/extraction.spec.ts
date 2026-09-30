@@ -3,7 +3,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { makeSyntheticPlanPdf } from "@wifi-planner/wall-extraction/fixtures";
 import { ADMIN } from "../playwright.config";
-import { addFloorWithPlan, apiOf, drag, newUserPage, tool } from "./helpers";
+import { addFloorWithPlan, apiOf, newUserPage, selectAll } from "./helpers";
 
 test("壁の自動抽出、候補の個別と一括の採用", async ({ browser }, testInfo) => {
   mkdirSync(testInfo.outputDir, { recursive: true });
@@ -50,10 +50,9 @@ test("壁の自動抽出、候補の個別と一括の採用", async ({ browser 
   await page.getByRole("button", { name: "すべて採用" }).click();
   await expect(summary).toHaveCount(0);
   await page.getByRole("button", { name: "自動抽出を閉じる" }).click();
-  await tool(page, "選択");
-  await drag(page, [0.01, 0.01], [0.99, 0.99]);
+  await selectAll(page);
   await expect(page.getByText(`${total} 本の壁を選択中`)).toBeVisible();
   await page.getByRole("button", { name: "元に戻す" }).click();
-  await drag(page, [0.01, 0.01], [0.99, 0.99]);
+  await selectAll(page);
   await expect(page.getByText("1 本の壁を選択中")).toBeVisible();
 });

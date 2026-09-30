@@ -12,6 +12,7 @@
     "@types/ws": "^8.18.2",
     "@wifi-planner/domain": "workspace:*",
     "@wifi-planner/wall-extraction": "workspace:*",
+    "sharp": "^0.35.5",
     "ws": "^8.22.0",
     "yjs": "^13.6.33"
   }

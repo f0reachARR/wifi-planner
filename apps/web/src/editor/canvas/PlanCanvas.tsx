@@ -30,7 +30,8 @@ export type CanvasTool =
   | "split"
   | "opening"
   | "ap"
-  | "align";
+  | "align"
+  | "photo";
 
 /** 道具に渡すポインタの情報。p は図面座標、px は画面の 1 ピクセルが図面座標でいくつか */
 export type PointerInfo = {
