@@ -34,7 +34,7 @@
 | 3D 描画 | three.js、@react-three/fiber、drei | 回転、ズーム、パンの操作部品（OrbitControls）がある |
 | 共同編集 | Yjs、Hocuspocus、y-indexeddb | 収束（FR-10.2）、オフライン編集（FR-10.4）、自分の操作だけの undo（FR-10.5）を Yjs が備える |
 | サーバ | Node.js 22、Hono、@hono/node-server、ws | Web 標準の Request を扱うので、同じく Request を受け取る Hocuspocus v4 の `handleConnection` に接続を渡せる |
-| DB | SQLite（better-sqlite3）、Drizzle ORM | 小さく始められる。Drizzle は PostgreSQL にも対応しており、後で移行できる |
+| DB | SQLite（@libsql/client）、Drizzle ORM | 小さく始められる。libsql は N-API のビルド済みバイナリを持ち、Node のバージョンごとにビルドし直さずに済む。Drizzle は PostgreSQL にも対応しており、後で移行できる |
 | 入力検証 | zod | API と Yjs 文書の形を、クライアントとサーバで同じ定義から検証する |
 | PDF ラスタ化 | pdfjs-dist（legacy build）、@napi-rs/canvas | Node 上でページを任意の倍率で描画できる |
 | 画像処理 | @techstark/opencv-js（WASM）、sharp | OpenCV の二値化、Hough 変換、輪郭抽出を TypeScript から使える。sharp は縮小画像と EXIF 処理に使う |

@@ -1,0 +1,16 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD を .env か環境変数で指定してください}
+    volumes:
+      - data:/data
+    restart: unless-stopped
+
+volumes:
+  data:

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.data/
+*.db
+*.db-wal
+*.db-shm
+coverage/
+.claude/settings.local.json
+test-results/
+playwright-report/
+.env
