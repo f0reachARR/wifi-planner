@@ -138,6 +138,8 @@ export function PlanCanvas(props: {
   tool: CanvasTool;
   handlers?: CanvasHandlers;
   controller?: ToolController;
+  /** カーソルの図面座標。キャンバスの外に出たら undefined */
+  onPointerMove?: (p: Vec2 | undefined) => void;
   /** 図面座標で描く重ね描き。引数は画面の 1 ピクセルが図面座標でいくつか */
   children?: (px: number) => ReactNode;
 }) {
@@ -250,6 +252,7 @@ export function PlanCanvas(props: {
     }
     const p = pointerPlan();
     sendCursor(p);
+    props.onPointerMove?.(p);
     if (draft && p) setDraft({ ...draft, b: p });
     if (p) controller?.onMove?.(info(e.evt, p));
   };
@@ -313,6 +316,7 @@ export function PlanCanvas(props: {
           onMouseLeave={() => {
             setPanning(undefined);
             sendCursor(undefined);
+            props.onPointerMove?.(undefined);
             controller?.onCancel?.();
           }}
           onContextMenu={(e) => e.evt.preventDefault()}

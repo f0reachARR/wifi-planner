@@ -7,12 +7,14 @@ import {
   Divider,
   Group,
   Modal,
+  MultiSelect,
   NumberInput,
   Paper,
   Popover,
   SegmentedControl,
   Select,
   Stack,
+  Switch,
   Text,
   Tooltip,
 } from "@mantine/core";
@@ -30,11 +32,21 @@ import {
   IconRotateClockwise2,
   IconRuler2,
   IconScissors,
+  IconSettings,
   IconTable,
   IconWall,
   IconX,
 } from "@tabler/icons-react";
-import { ApModel, distance, metersPerUnit, type Vec2 } from "@wifi-planner/domain";
+import {
+  ApModel,
+  BAND_LABELS,
+  BANDS,
+  type Band,
+  distance,
+  metersPerUnit,
+  planTransform,
+  type Vec2,
+} from "@wifi-planner/domain";
 import {
   addAp,
   defaultRadios,
@@ -46,12 +58,19 @@ import { useMemo, useState } from "react";
 import { useApModels } from "../api/hooks";
 import { useSession, useSessionState } from "../collab/react";
 import { notifyError } from "../notify";
+import { composeImage, type HeatmapMode, MODE_LABELS } from "../propagation/render";
+import { useHeatmap } from "../propagation/useHeatmap";
 import { ApInspector } from "./aps/ApInspector";
 import { type ApEntry, ApLayer } from "./aps/ApLayer";
 import { ApTableModal } from "./aps/ApTableModal";
 import { type CanvasTool, PlanCanvas } from "./canvas/PlanCanvas";
 import type { FloorEntry } from "./FloorPanel";
 import type { WallEntry } from "./geometry";
+import { HeatmapLayer } from "./heatmap/HeatmapLayer";
+import { HoverReadout } from "./heatmap/HoverReadout";
+import { createHoverStore } from "./heatmap/hover";
+import { Legend } from "./heatmap/Legend";
+import { PropagationSettingsModal } from "./heatmap/PropagationSettingsModal";
 import { MaterialsModal } from "./MaterialsModal";
 import { PlanImportModal } from "./PlanImportModal";
 import { useWallTools } from "./walls/useWallTools";
@@ -125,6 +144,31 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
     materialIds,
     onPlaceAp: placeAp,
   });
+  // 電波の表示（FR-8.1〜8.8）
+  const [band, setBand] = useState<Band>("5");
+  const [mode, setMode] = useState<HeatmapMode>("rssi");
+  const [showHeatmap, setShowHeatmap] = useState(true);
+  const [apFilter, setApFilter] = useState<string[]>([]);
+  const [editingPropagation, setEditingPropagation] = useState(false);
+  const [hoverStore] = useState(createHoverStore);
+  const transform = planTransform(floor.plan, floor.scale);
+  const { result, pending } = useHeatmap(doc, floor.id, band, showHeatmap && !!transform);
+  const legend = doc?.settings.legend;
+  const okResult = result?.status === "ok" ? result : undefined;
+  const pixels = useMemo(
+    () =>
+      okResult && legend
+        ? composeImage(okResult.radios, okResult.grid.cols * okResult.grid.rows, {
+            mode,
+            apIds: new Set(apFilter),
+            stops: legend.stops,
+            thresholdDbm: legend.goodThresholdDbm,
+            hideBelow: legend.hideBelow,
+          })
+        : undefined,
+    [okResult, legend, mode, apFilter],
+  );
+
   const selectedWalls = wallTools.selection.filter((id) => floor.walls[id]);
   const selectedAps = wallTools.selection.filter((id) => floor.aps[id]);
   const floorPeers = peers.filter((p) => p.floorId === floor.id);
@@ -183,6 +227,7 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
           floor={floor}
           tool={tool}
           controller={wallTools.controller}
+          onPointerMove={hoverStore.set}
           handlers={{
             onCalibrate: (a, b) => setCalibration({ a, b }),
             onCrop: (crop) => {
@@ -193,6 +238,15 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
         >
           {(px) => (
             <>
+              {showHeatmap && okResult && pixels && transform && (
+                <HeatmapLayer
+                  grid={okResult.grid}
+                  pixels={pixels}
+                  planRotationDeg={plan.rotationDeg}
+                  metersPerUnit={transform.metersPerUnit}
+                  opacity={0.6}
+                />
+              )}
               <WallLayer
                 walls={walls}
                 materials={materials}
@@ -405,6 +459,23 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
           )}
         </Paper>
 
+        {showHeatmap && legend && okResult && transform && (
+          <Stack pos="absolute" bottom={8} left={8} gap={6} style={{ pointerEvents: "none" }}>
+            <HoverReadout
+              store={hoverStore}
+              result={okResult}
+              transform={transform}
+              floor={floor}
+              thresholdDbm={legend.goodThresholdDbm}
+            />
+            <Legend
+              mode={mode}
+              stops={legend.stops}
+              thresholdDbm={legend.goodThresholdDbm}
+              hideBelow={legend.hideBelow}
+            />
+          </Stack>
+        )}
         <Box pos="absolute" bottom={8} right={8} maw={360}>
           {mpu === undefined ? (
             <Alert color="yellow" title="スケールが未校正です" p="xs">
@@ -472,6 +543,63 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
         <Stack gap="md">
           <Group justify="space-between">
             <Text fw={600} size="sm">
+              電波
+            </Text>
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              leftSection={<IconSettings size={14} />}
+              onClick={() => setEditingPropagation(true)}
+            >
+              設定
+            </Button>
+          </Group>
+          <Switch
+            label="ヒートマップを表示"
+            checked={showHeatmap}
+            onChange={(e) => setShowHeatmap(e.currentTarget.checked)}
+            size="xs"
+          />
+          <SegmentedControl
+            size="xs"
+            aria-label="帯域"
+            value={band}
+            onChange={(v) => setBand(v as Band)}
+            data={BANDS.map((b) => ({ value: b, label: BAND_LABELS[b] }))}
+          />
+          <Select
+            size="xs"
+            label="表示"
+            data={(Object.keys(MODE_LABELS) as HeatmapMode[]).map((m) => ({
+              value: m,
+              label: MODE_LABELS[m],
+            }))}
+            value={mode}
+            allowDeselect={false}
+            onChange={(v) => v && setMode(v as HeatmapMode)}
+          />
+          <MultiSelect
+            size="xs"
+            label="対象の AP"
+            placeholder={apFilter.length === 0 ? "すべて" : undefined}
+            data={aps.map((a) => ({ value: a.id, label: a.name }))}
+            value={apFilter.filter((id) => floor.aps[id])}
+            onChange={setApFilter}
+            clearable
+            searchable
+          />
+          <Text size="xs" c="dimmed" aria-live="polite">
+            {!transform
+              ? "スケールを校正すると計算します"
+              : pending
+                ? "計算中…"
+                : okResult
+                  ? `${okResult.radios.length} 本のラジオを計算済み（${okResult.grid.cols}×${okResult.grid.rows} 点、${okResult.elapsedMs.toFixed(0)} ms）`
+                  : ""}
+          </Text>
+          <Divider />
+          <Group justify="space-between">
+            <Text fw={600} size="sm">
               壁
             </Text>
             <Button
@@ -527,6 +655,10 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
       </Box>
       <MaterialsModal opened={editingMaterials} onClose={() => setEditingMaterials(false)} />
       <ApTableModal opened={showApTable} onClose={() => setShowApTable(false)} />
+      <PropagationSettingsModal
+        opened={editingPropagation}
+        onClose={() => setEditingPropagation(false)}
+      />
     </Box>
   );
 }

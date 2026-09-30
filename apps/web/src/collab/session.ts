@@ -103,7 +103,10 @@ export class ProjectSession {
     this.undoManager.on("stack-item-added", () => this.refresh());
     this.undoManager.on("stack-item-popped", () => this.refresh());
 
-    this.ydoc.on("update", () => this.refresh());
+    this.ydoc.on("update", () => {
+      this.docDirty = true;
+      this.refresh();
+    });
     this.provider.awareness?.on("change", () => this.refresh());
     this.setPresence({});
 
@@ -112,12 +115,23 @@ export class ProjectSession {
   }
 
   private denied = false;
+  /** 文書が前回の読み取りから変わったか。awareness や接続の状態だけが変わったときは文書を読み直さない */
+  private docDirty = true;
   private wsStatus: WebSocketStatus = WebSocketStatus.Connecting;
 
-  private build(): Snapshot {
+  private readDoc() {
+    if (!this.docDirty && this.snapshot) return this.snapshot.doc;
+    this.docDirty = false;
     const parsed = tryReadProjectDoc(this.ydoc);
     // ほかのクライアントが書いた壊れた値で画面を落とさないよう、検証に失敗したら直前の状態を使う
-    if (!parsed.success) console.warn("文書の検証に失敗", parsed.error);
+    if (!parsed.success) {
+      console.warn("文書の検証に失敗", parsed.error);
+      return this.snapshot?.doc;
+    }
+    return parsed.data;
+  }
+
+  private build(): Snapshot {
     const status = this.wsStatus;
     const state: ConnectionState = this.denied
       ? "denied"
@@ -127,7 +141,7 @@ export class ProjectSession {
           ? "offline"
           : "connecting";
     return {
-      doc: parsed.success ? parsed.data : this.snapshot?.doc,
+      doc: this.readDoc(),
       state,
       synced: this.provider.isSynced,
       canUndo: this.undoManager.canUndo(),

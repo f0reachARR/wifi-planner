@@ -41,9 +41,9 @@ test("AP モデルの作成、AP の配置と設定、一覧からの一括変�
   await page.getByRole("combobox", { name: "置く AP モデル" }).click();
   await page.getByRole("option", { name: "テスト AP" }).click();
   await click(page, 0.35, 0.4);
-  await expect(page.getByText("AP-1", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("名前")).toHaveValue("AP-1");
   await click(page, 0.65, 0.4);
-  await expect(page.getByText("AP-2", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("名前")).toHaveValue("AP-2");
 
   // ラジオの設定（FR-6.3、FR-6.4）
   await tool(page, "選択");

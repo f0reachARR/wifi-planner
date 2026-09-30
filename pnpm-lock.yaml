@@ -132,6 +132,9 @@ importers:
       '@wifi-planner/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@wifi-planner/propagation':
+        specifier: workspace:*
+        version: link:../../packages/propagation
       konva:
         specifier: ^10.7.0
         version: 10.7.0
