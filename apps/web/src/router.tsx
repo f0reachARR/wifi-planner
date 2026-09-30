@@ -1,6 +1,7 @@
 import { createBrowserRouter } from "react-router";
 import { AppLayout, RequireAdmin, RequireLogin } from "./components/AppLayout";
 import { AdminUsersPage } from "./pages/AdminUsersPage";
+import { ApModelsPage } from "./pages/ApModelsPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ProjectPage } from "./pages/ProjectPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
@@ -14,6 +15,7 @@ export const router = createBrowserRouter([
         Component: AppLayout,
         children: [
           { index: true, Component: ProjectsPage },
+          { path: "ap-models", Component: ApModelsPage },
           {
             path: "admin/users",
             Component: RequireAdmin,

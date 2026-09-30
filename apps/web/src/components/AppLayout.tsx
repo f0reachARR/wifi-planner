@@ -9,7 +9,7 @@ import {
   Title,
   UnstyledButton,
 } from "@mantine/core";
-import { IconChevronDown, IconLogout, IconUsers } from "@tabler/icons-react";
+import { IconAntenna, IconChevronDown, IconLogout, IconUsers } from "@tabler/icons-react";
 import { Link, Navigate, Outlet, useLocation, useNavigate } from "react-router";
 import { useLogout, useMe } from "../api/hooks";
 
@@ -46,6 +46,15 @@ export function AppLayout() {
             <UnstyledButton component={Link} to="/">
               <Title order={4}>WiFi 配置計画</Title>
             </UnstyledButton>
+            <Button
+              component={Link}
+              to="/ap-models"
+              variant="subtle"
+              size="compact-sm"
+              leftSection={<IconAntenna size={16} />}
+            >
+              AP モデル
+            </Button>
             {me?.isAdmin && (
               <Button
                 component={Link}

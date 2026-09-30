@@ -4,6 +4,7 @@ import {
   Box,
   Button,
   Center,
+  Divider,
   Group,
   Modal,
   NumberInput,
@@ -17,6 +18,7 @@ import {
 } from "@mantine/core";
 import { useHotkeys } from "@mantine/hooks";
 import {
+  IconAccessPoint,
   IconAdjustments,
   IconCrop,
   IconDoor,
@@ -28,13 +30,25 @@ import {
   IconRotateClockwise2,
   IconRuler2,
   IconScissors,
+  IconTable,
   IconWall,
   IconX,
 } from "@tabler/icons-react";
-import { distance, metersPerUnit, type Vec2 } from "@wifi-planner/domain";
-import { updateFloor } from "@wifi-planner/domain/ops";
+import { ApModel, distance, metersPerUnit, type Vec2 } from "@wifi-planner/domain";
+import {
+  addAp,
+  defaultRadios,
+  nextApName,
+  putApModelSnapshot,
+  updateFloor,
+} from "@wifi-planner/domain/ops";
 import { useMemo, useState } from "react";
+import { useApModels } from "../api/hooks";
 import { useSession, useSessionState } from "../collab/react";
+import { notifyError } from "../notify";
+import { ApInspector } from "./aps/ApInspector";
+import { type ApEntry, ApLayer } from "./aps/ApLayer";
+import { ApTableModal } from "./aps/ApTableModal";
 import { type CanvasTool, PlanCanvas } from "./canvas/PlanCanvas";
 import type { FloorEntry } from "./FloorPanel";
 import type { WallEntry } from "./geometry";
@@ -60,14 +74,59 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
     () => Object.entries(floor.walls).map(([id, w]) => ({ ...w, id })),
     [floor.walls],
   );
+  const aps: ApEntry[] = useMemo(
+    () => Object.entries(floor.aps).map(([id, a]) => ({ ...a, id })),
+    [floor.aps],
+  );
   const mpu = metersPerUnit(floor.scale);
+  const { data: library = [] } = useApModels();
+  const [placeModelId, setPlaceModelId] = useState<string | null>(null);
+  const [showApTable, setShowApTable] = useState(false);
+
+  /** AP を置く（FR-6.1）。ライブラリのモデルをまだ写していなければ、プロジェクトに写す */
+  const placeAp = (p: Vec2): string | undefined => {
+    const entry = library.find((m) => m.id === placeModelId);
+    if (!entry || !doc) {
+      notifyError(new Error("置く AP モデルを選んでください"));
+      return undefined;
+    }
+    const model = ApModel.parse(entry.definition);
+    const names = new Set(
+      Object.values(doc.floors).flatMap((f) => Object.values(f.aps).map((a) => a.name)),
+    );
+    let id: string | undefined;
+    session.mutate((ydoc) => {
+      if (!doc.apModels[entry.id]) {
+        putApModelSnapshot(ydoc, entry.id, {
+          ...model,
+          source: { libraryId: entry.id, updatedAt: new Date(entry.updatedAt).toISOString() },
+        });
+      }
+      id = addAp(ydoc, floor.id, {
+        name: nextApName("AP-0", names),
+        modelId: entry.id,
+        position: p,
+        heightM: Math.min(2.7, floor.heightM),
+        mount: "ceiling",
+        azimuthDeg: 0,
+        tiltDeg: 0,
+        radios: defaultRadios(model),
+      });
+    });
+    return id;
+  };
+
   const wallTools = useWallTools({
     floorId: floor.id,
     walls,
+    aps,
     tool,
     metersPerUnit: mpu,
     materialIds,
+    onPlaceAp: placeAp,
   });
+  const selectedWalls = wallTools.selection.filter((id) => floor.walls[id]);
+  const selectedAps = wallTools.selection.filter((id) => floor.aps[id]);
   const floorPeers = peers.filter((p) => p.floorId === floor.id);
 
   useHotkeys([
@@ -133,15 +192,31 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
           }}
         >
           {(px) => (
-            <WallLayer
-              walls={walls}
-              materials={materials}
-              selection={wallTools.selectionSet}
-              peers={floorPeers}
-              drafts={wallTools.drafts}
-              px={px}
-              showHandles={tool === "select" && !readOnly && wallTools.selection.length === 1}
-            />
+            <>
+              <WallLayer
+                walls={walls}
+                materials={materials}
+                selection={wallTools.selectionSet}
+                peers={floorPeers}
+                drafts={wallTools.drafts}
+                px={px}
+                showHandles={
+                  tool === "select" &&
+                  !readOnly &&
+                  selectedWalls.length === 1 &&
+                  selectedAps.length === 0
+                }
+              />
+              <ApLayer
+                aps={aps}
+                models={doc?.apModels ?? {}}
+                selection={wallTools.selectionSet}
+                peers={floorPeers}
+                move={wallTools.drafts.move}
+                px={px}
+                planRotationDeg={plan.rotationDeg}
+              />
+            </>
           )}
         </PlanCanvas>
 
@@ -174,6 +249,10 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                       {
                         value: "opening",
                         label: <ToolLabel icon={<IconDoor size={14} />} text="ドア・窓" />,
+                      },
+                      {
+                        value: "ap",
+                        label: <ToolLabel icon={<IconAccessPoint size={14} />} text="AP" />,
                       },
                       {
                         value: "calibrate",
@@ -269,6 +348,28 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
               />
               <Text size="xs" c="dimmed">
                 クリックで点を置き、ダブルクリックか Enter で確定。Esc で取り消し
+              </Text>
+            </Group>
+          )}
+          {tool === "ap" && (
+            <Group gap={4} mt={4}>
+              <Select
+                size="xs"
+                w={220}
+                aria-label="置く AP モデル"
+                placeholder="AP モデルを選ぶ"
+                data={library.flatMap((m) => {
+                  const def = ApModel.safeParse(m.definition);
+                  return def.success ? [{ value: m.id, label: def.data.name }] : [];
+                })}
+                value={placeModelId}
+                onChange={setPlaceModelId}
+                nothingFoundMessage="AP モデルがありません"
+              />
+              <Text size="xs" c="dimmed">
+                {library.length === 0
+                  ? "先に「AP モデル」の画面でモデルを作成してください"
+                  : "図面をクリックすると、その位置に置きます"}
               </Text>
             </Group>
           )}
@@ -382,18 +483,50 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
               材質
             </Button>
           </Group>
-          <WallInspector
-            floorId={floor.id}
-            walls={walls}
-            materials={materials}
-            selection={wallTools.selection}
-            setSelection={wallTools.setSelection}
-            onDelete={wallTools.deleteSelection}
-            metersPerUnit={mpu}
-          />
+          {(selectedWalls.length > 0 || selectedAps.length === 0) && (
+            <WallInspector
+              floorId={floor.id}
+              walls={walls}
+              materials={materials}
+              selection={selectedWalls}
+              setSelection={wallTools.setSelection}
+              onDelete={wallTools.deleteSelection}
+              metersPerUnit={mpu}
+            />
+          )}
+          <Divider />
+          <Group justify="space-between">
+            <Text fw={600} size="sm">
+              AP
+            </Text>
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              leftSection={<IconTable size={14} />}
+              onClick={() => setShowApTable(true)}
+            >
+              AP の一覧
+            </Button>
+          </Group>
+          {selectedAps.length > 0 ? (
+            <ApInspector
+              floorId={floor.id}
+              aps={aps}
+              selection={selectedAps}
+              setSelection={wallTools.setSelection}
+              library={library}
+              metersPerUnit={mpu}
+            />
+          ) : (
+            <Text size="xs" c="dimmed">
+              「AP」の道具でモデルを選び、図面をクリックして置きます。置いた AP
+              をクリックすると設定を変えられます。
+            </Text>
+          )}
         </Stack>
       </Box>
       <MaterialsModal opened={editingMaterials} onClose={() => setEditingMaterials(false)} />
+      <ApTableModal opened={showApTable} onClose={() => setShowApTable(false)} />
     </Box>
   );
 }

@@ -20,7 +20,15 @@ import { fileUrl } from "../../api/client";
 import { useSession, useSessionState } from "../../collab/react";
 import type { FloorEntry } from "../FloorPanel";
 
-export type CanvasTool = "pan" | "calibrate" | "crop" | "select" | "wall" | "split" | "opening";
+export type CanvasTool =
+  | "pan"
+  | "calibrate"
+  | "crop"
+  | "select"
+  | "wall"
+  | "split"
+  | "opening"
+  | "ap";
 
 /** 道具に渡すポインタの情報。p は図面座標、px は画面の 1 ピクセルが図面座標でいくつか */
 export type PointerInfo = {

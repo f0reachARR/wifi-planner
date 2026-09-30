@@ -7,7 +7,9 @@ import {
 } from "@wifi-planner/domain";
 import {
   addWall,
+  deleteAps,
   deleteWalls,
+  moveAps,
   moveWalls,
   newId,
   readWall,
@@ -17,12 +19,21 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "../../collab/react";
 import { notifyError } from "../../notify";
+import type { ApEntry } from "../aps/ApLayer";
 import type { CanvasTool, ToolController } from "../canvas/PlanCanvas";
-import { hitTestWall, rectToPolygon, snapPoint, type WallEntry, wallsInPolygon } from "../geometry";
+import {
+  hitTestWall,
+  pointInPolygon,
+  rectToPolygon,
+  snapPoint,
+  type WallEntry,
+  wallsInPolygon,
+} from "../geometry";
 import type { WallDrafts } from "./WallLayer";
 
 /** 画面上で何ピクセル以内を「近い」とみなすか */
 const HIT_PX = 8;
+const AP_HIT_PX = 12;
 const SNAP_PX = 10;
 /** これより小さいドラッグはクリックとみなす */
 const DRAG_PX = 3;
@@ -51,16 +62,20 @@ const OPENING_MATERIAL: Record<OpeningKind, string> = {
 };
 
 /**
- * 壁の編集の道具（FR-4.4〜4.6、FR-4.8）。選択はユーザーごとのローカル状態とし、awareness でほかのユーザーに見せる。
+ * 2D ビューの編集の道具（FR-4.4〜4.6、FR-4.8、FR-6.1）。壁と AP を同じ選択で扱う。
+ * 選択はユーザーごとのローカル状態とし、awareness でほかのユーザーに見せる。ID は UUID なので壁と AP で重ならない。
  */
 export function useWallTools(opts: {
   floorId: string;
   walls: WallEntry[];
+  aps: ApEntry[];
   tool: CanvasTool;
   metersPerUnit: number | undefined;
   materialIds: ReadonlySet<string>;
+  /** AP の道具でクリックしたとき。置いた AP の ID を返す */
+  onPlaceAp?: (p: Vec2) => string | undefined;
 }) {
-  const { floorId, walls, tool } = opts;
+  const { floorId, walls, aps, tool } = opts;
   const session = useSession();
   const readOnly = session.readOnly;
   const [selection, setSelection] = useState<string[]>([]);
@@ -80,11 +95,24 @@ export function useWallTools(opts: {
 
   const selectionSet = useMemo(() => new Set(selection), [selection]);
 
-  // 消えた壁を選択から外す（ほかのユーザーが消した場合など）
+  // 消えた壁と AP を選択から外す（ほかのユーザーが消した場合など）
   useEffect(() => {
-    const ids = new Set(walls.map((w) => w.id));
+    const ids = new Set([...walls.map((w) => w.id), ...aps.map((a) => a.id)]);
     if (selection.some((id) => !ids.has(id))) setSelection((s) => s.filter((id) => ids.has(id)));
-  }, [walls, selection]);
+  }, [walls, aps, selection]);
+
+  const hitTestAp = (p: Vec2, px: number) => {
+    let best: ApEntry | undefined;
+    let bestDist = AP_HIT_PX * px;
+    for (const ap of aps) {
+      const d = Math.hypot(ap.position.x - p.x, ap.position.y - p.y);
+      if (d <= bestDist) {
+        best = ap;
+        bestDist = d;
+      }
+    }
+    return best;
+  };
 
   useEffect(() => session.setPresence({ selection }), [session, selection]);
 
@@ -129,7 +157,10 @@ export function useWallTools(opts: {
 
   const deleteSelection = () => {
     if (selection.length === 0) return;
-    session.mutate((ydoc) => deleteWalls(ydoc, floorId, selection));
+    session.mutate((ydoc) => {
+      deleteWalls(ydoc, floorId, selection);
+      deleteAps(ydoc, floorId, selection);
+    });
     setSelection([]);
   };
 
@@ -187,6 +218,14 @@ export function useWallTools(opts: {
     };
   }
 
+  if (tool === "ap" && !readOnly) {
+    controller.cursor = "copy";
+    controller.onDown = (e) => {
+      const id = opts.onPlaceAp?.(e.p);
+      if (id) setSelection([id]);
+    };
+  }
+
   if (tool === "split" || tool === "opening") {
     controller.cursor = "pointer";
     controller.onMove = (e) => {
@@ -223,9 +262,11 @@ export function useWallTools(opts: {
           return;
         }
       }
-      const hit = hitTestWall(walls, e.p, HIT_PX * e.px);
-      if (hit) {
-        const id = hit.wall.id;
+      // AP は壁の上に置かれることが多いので、先に調べる
+      const apHit = hitTestAp(e.p, e.px);
+      const hit = apHit ? undefined : hitTestWall(walls, e.p, HIT_PX * e.px);
+      if (apHit || hit) {
+        const id = apHit ? apHit.id : hit!.wall.id;
         if (e.shift || e.mod) {
           setSelection((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
           return;
@@ -271,11 +312,19 @@ export function useWallTools(opts: {
                 height: Math.abs(e.p.y - gesture.start.y),
               });
         const tiny = Math.hypot(e.p.x - gesture.start.x, e.p.y - gesture.start.y) <= DRAG_PX * e.px;
-        const picked = tiny ? [] : wallsInPolygon(walls, polygon);
+        const picked = tiny
+          ? []
+          : [
+              ...wallsInPolygon(walls, polygon),
+              ...aps.filter((a) => pointInPolygon(a.position, polygon)).map((a) => a.id),
+            ];
         setSelection((s) => (gesture.additive ? [...new Set([...s, ...picked])] : picked));
       } else if (gesture.kind === "move") {
         if (gesture.moved) {
-          session.mutate((ydoc) => moveWalls(ydoc, floorId, gesture.ids, gesture.dx, gesture.dy));
+          session.mutate((ydoc) => {
+            moveWalls(ydoc, floorId, gesture.ids, gesture.dx, gesture.dy);
+            moveAps(ydoc, floorId, gesture.ids, gesture.dx, gesture.dy);
+          });
           session.setPresence({ drag: undefined });
         } else {
           // 選択中の壁をドラッグせずにクリックしたときは、その壁だけを選ぶ

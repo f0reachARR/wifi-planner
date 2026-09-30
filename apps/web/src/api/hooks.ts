@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
+  ApModelEntry,
   CreateUserRequest,
   Member,
   MemberRole,
@@ -151,5 +152,31 @@ export function useUpdateUser() {
     mutationFn: ({ id, ...input }: UpdateUserRequest & { id: string }) =>
       api.patch<User>(`/admin/users/${id}`, input),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.adminUsers }),
+  });
+}
+
+export function useApModels() {
+  return useQuery({
+    queryKey: ["ap-models"],
+    queryFn: () => api.get<ApModelEntry[]>("/ap-models"),
+  });
+}
+
+export function useSaveApModel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, definition }: { id?: string; definition: unknown }) =>
+      id
+        ? api.put<ApModelEntry>(`/ap-models/${id}`, definition)
+        : api.post<ApModelEntry>("/ap-models", definition),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["ap-models"] }),
+  });
+}
+
+export function useDeleteApModel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete<void>(`/ap-models/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["ap-models"] }),
   });
 }
