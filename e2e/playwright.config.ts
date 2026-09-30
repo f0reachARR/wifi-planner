@@ -15,8 +15,10 @@ export default defineConfig({
   workers: 1,
   use: {
     baseURL: `http://localhost:${PORT}`,
-    // システムに入っている Chrome を使う
-    channel: "chrome",
+    // 既定ではシステムに入っている Chrome を使う。E2E_BROWSER=firefox で Firefox でも確かめられる（NFR-4）
+    ...(process.env.E2E_BROWSER === "firefox"
+      ? { browserName: "firefox" as const }
+      : { channel: "chrome" }),
     locale: "ja-JP",
     screenshot: "only-on-failure",
   },
