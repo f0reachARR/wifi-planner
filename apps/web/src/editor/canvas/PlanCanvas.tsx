@@ -19,6 +19,7 @@ import {
 import { fileUrl } from "../../api/client";
 import { useSession, useSessionState } from "../../collab/react";
 import type { FloorEntry } from "../FloorPanel";
+import { useHtmlImage } from "./useHtmlImage";
 
 export type CanvasTool =
   | "pan"
@@ -28,7 +29,8 @@ export type CanvasTool =
   | "wall"
   | "split"
   | "opening"
-  | "ap";
+  | "ap"
+  | "align";
 
 /** 道具に渡すポインタの情報。p は図面座標、px は画面の 1 ピクセルが図面座標でいくつか */
 export type PointerInfo = {
@@ -98,23 +100,6 @@ function fitView(extent: Rect, rotationDeg: number, size: { width: number; heigh
   };
 }
 
-function useHtmlImage(src: string | undefined) {
-  const [image, setImage] = useState<HTMLImageElement>();
-  useEffect(() => {
-    if (!src) {
-      setImage(undefined);
-      return;
-    }
-    const img = new window.Image();
-    img.onload = () => setImage(img);
-    img.src = src;
-    return () => {
-      img.onload = null;
-    };
-  }, [src]);
-  return image;
-}
-
 const normalizeRect = (a: Vec2, b: Vec2): Rect => ({
   x: Math.min(a.x, b.x),
   y: Math.min(a.y, b.y),
@@ -125,6 +110,8 @@ const normalizeRect = (a: Vec2, b: Vec2): Rect => ({
 export type CanvasHandlers = {
   /** スケール校正の 2 点目を置いたとき */
   onCalibrate?: (a: Vec2, b: Vec2) => void;
+  /** フロア間の位置合わせの基準点の 2 点目を置いたとき */
+  onAlign?: (a: Vec2, b: Vec2) => void;
   /** トリミングの範囲を決めたとき */
   onCrop?: (rect: Rect) => void;
 };
@@ -227,10 +214,11 @@ export function PlanCanvas(props: {
     if (e.evt.button !== 0) return;
     const p = pointerPlan();
     if (!p) return;
-    if (tool === "calibrate") {
+    if (tool === "calibrate" || tool === "align") {
       if (!draft) setDraft({ a: p, b: p });
       else {
-        handlers?.onCalibrate?.(draft.a, p);
+        if (tool === "calibrate") handlers?.onCalibrate?.(draft.a, p);
+        else handlers?.onAlign?.(draft.a, p);
         setDraft(undefined);
       }
     } else if (tool === "crop") {
@@ -350,7 +338,31 @@ export function PlanCanvas(props: {
                     listening={false}
                   />
                 )}
-                {tool === "calibrate" && draft && (
+                {tool === "align" && floor.alignment && !draft && (
+                  <>
+                    {(["a", "b"] as const).map((k) => (
+                      <Group
+                        key={k}
+                        x={floor.alignment![k].x}
+                        y={floor.alignment![k].y}
+                        scaleX={px}
+                        scaleY={px}
+                        rotation={-rotation}
+                        listening={false}
+                      >
+                        <Circle radius={6} stroke="#9c36b5" strokeWidth={2} />
+                        <Text
+                          text={k === "a" ? "基準点 1" : "基準点 2"}
+                          x={8}
+                          y={-6}
+                          fontSize={12}
+                          fill="#9c36b5"
+                        />
+                      </Group>
+                    ))}
+                  </>
+                )}
+                {(tool === "calibrate" || tool === "align") && draft && (
                   <>
                     <Line
                       points={[draft.a.x, draft.a.y, draft.b.x, draft.b.y]}

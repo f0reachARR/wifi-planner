@@ -1,5 +1,5 @@
 import { degToRad, distance, type Vec2 } from "./geometry.js";
-import type { PlanImage, ScaleCalibration } from "./schema.js";
+import type { Floor, PlanImage, ScaleCalibration } from "./schema.js";
 
 // 座標系は設計書 3 章を参照。
 // - 図面座標：画像と同じく x は右、y は下向き。
@@ -89,4 +89,61 @@ export function alignFloor(
     toWorld: { cos, sin, tx: reference.a.x - rotatedA.x, ty: reference.a.y - rotatedA.y },
     distanceRatio: ownLen / refLen,
   };
+}
+
+export type FloorPlacement = {
+  /** フロア座標からワールド座標への変換 */
+  toWorld: RigidTransform;
+  /** 基準フロアか、基準点で位置を合わせたフロアなら true */
+  aligned: boolean;
+  isReference: boolean;
+  /** 基準点間の距離の比（このフロア / 基準フロア） */
+  distanceRatio?: number;
+  plan: PlanTransform;
+};
+
+/**
+ * 各フロアのワールド座標での置き方（FR-3.2）。基準は order が最小で、スケールを校正済みのフロアとする。
+ * ほかのフロアは、自分と基準フロアの両方に基準点があるときだけ位置を合わせ、なければ恒等変換のまま aligned を false にする。
+ * スケールが未校正のフロアは含めない。
+ */
+export function floorPlacements(
+  floors: Record<string, Pick<Floor, "order" | "plan" | "scale" | "alignment">>,
+): Record<string, FloorPlacement> {
+  const calibrated = Object.entries(floors)
+    .map(([id, f]) => ({ id, f, plan: planTransform(f.plan, f.scale) }))
+    .filter((x): x is typeof x & { plan: PlanTransform } => x.plan !== undefined)
+    .sort((a, b) => a.f.order - b.f.order);
+  const out: Record<string, FloorPlacement> = {};
+  const base = calibrated[0];
+  if (!base) return out;
+  const toFloorPair = (plan: PlanTransform, al: { a: Vec2; b: Vec2 }) => ({
+    a: plan.toFloor(al.a),
+    b: plan.toFloor(al.b),
+  });
+  const baseRef = base.f.alignment && toFloorPair(base.plan, base.f.alignment);
+  for (const { id, f, plan } of calibrated) {
+    if (id === base.id) {
+      out[id] = { toWorld: IDENTITY, aligned: true, isReference: true, plan };
+      continue;
+    }
+    const aligned = baseRef && f.alignment && alignFloor(toFloorPair(plan, f.alignment), baseRef);
+    out[id] = aligned
+      ? {
+          toWorld: aligned.toWorld,
+          aligned: true,
+          isReference: false,
+          distanceRatio: aligned.distanceRatio,
+          plan,
+        }
+      : { toWorld: IDENTITY, aligned: false, isReference: false, plan };
+  }
+  return out;
+}
+
+/** あるフロアの図面座標を、別のフロアの図面座標に移す関数（重ね表示に使う、FR-3.3） */
+export function planToPlan(from: FloorPlacement, to: FloorPlacement): (p: Vec2) => Vec2 {
+  const toInverse = invertRigid(to.toWorld);
+  return (p) =>
+    to.plan.toPlan(applyRigid(toInverse, applyRigid(from.toWorld, from.plan.toFloor(p))));
 }

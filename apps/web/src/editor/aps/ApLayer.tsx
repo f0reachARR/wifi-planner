@@ -16,7 +16,10 @@ export function ApLayer(props: {
   peers: readonly PeerPresence[];
   move?: { dx: number; dy: number };
   px: number;
+  /** AP があるフロアの図面の回転。方位角を図面座標の向きに直すのに使う */
   planRotationDeg: number;
+  /** 画面に対する回転。名前の文字を画面に対してまっすぐにするのに使う。省略すると planRotationDeg と同じ */
+  labelRotationDeg?: number;
 }) {
   const { px } = props;
   const peerSelection = new Map<string, string>();
@@ -57,7 +60,11 @@ export function ApLayer(props: {
               strokeWidth={2 * px}
             />
             <Circle radius={3 * px} fill={enabled ? "#e8590c" : "#868e96"} />
-            <Group rotation={-props.planRotationDeg} scaleX={px} scaleY={px}>
+            <Group
+              rotation={-(props.labelRotationDeg ?? props.planRotationDeg)}
+              scaleX={px}
+              scaleY={px}
+            >
               <Text
                 text={ap.name}
                 x={11}

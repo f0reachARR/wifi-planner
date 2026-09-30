@@ -13,6 +13,7 @@ import {
   Popover,
   SegmentedControl,
   Select,
+  Slider,
   Stack,
   Switch,
   Text,
@@ -33,6 +34,7 @@ import {
   IconRuler2,
   IconScissors,
   IconSettings,
+  IconStack2,
   IconTable,
   IconWall,
   IconWand,
@@ -44,7 +46,9 @@ import {
   BANDS,
   type Band,
   distance,
+  floorPlacements,
   metersPerUnit,
+  planToPlan,
   planTransform,
   type Vec2,
 } from "@wifi-planner/domain";
@@ -68,7 +72,7 @@ import { type CanvasTool, PlanCanvas, type ToolController } from "./canvas/PlanC
 import { CandidateLayer } from "./extraction/CandidateLayer";
 import { ExtractionPanel } from "./extraction/ExtractionPanel";
 import { useExtraction } from "./extraction/useExtraction";
-import type { FloorEntry } from "./FloorPanel";
+import { type FloorEntry, sortedFloors } from "./FloorPanel";
 import { hitTestWall, type WallEntry } from "./geometry";
 import { HeatmapLayer } from "./heatmap/HeatmapLayer";
 import { HoverReadout } from "./heatmap/HoverReadout";
@@ -76,6 +80,8 @@ import { createHoverStore } from "./heatmap/hover";
 import { Legend } from "./heatmap/Legend";
 import { PropagationSettingsModal } from "./heatmap/PropagationSettingsModal";
 import { MaterialsModal } from "./MaterialsModal";
+import { OverlayFloor } from "./overlay/OverlayLayer";
+import { similarityNode } from "./overlay/similarity";
 import { PlanImportModal } from "./PlanImportModal";
 import { useWallTools } from "./walls/useWallTools";
 import { WallInspector } from "./walls/WallInspector";
@@ -191,6 +197,12 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
         }
       : undefined;
 
+  // フロア間の位置合わせと重ね表示（FR-3.2、FR-3.3）。重ね表示の設定はユーザーごとのローカル状態
+  const placements = useMemo(() => floorPlacements(doc?.floors ?? {}), [doc?.floors]);
+  const here = placements[floor.id];
+  const [overlays, setOverlays] = useState<Record<string, { on: boolean; opacity: number }>>({});
+  const otherFloors = sortedFloors(doc?.floors ?? {}).filter((f) => f.id !== floor.id);
+
   const selectedWalls = wallTools.selection.filter((id) => floor.walls[id]);
   const selectedAps = wallTools.selection.filter((id) => floor.aps[id]);
   const floorPeers = peers.filter((p) => p.floorId === floor.id);
@@ -252,6 +264,10 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
           onPointerMove={hoverStore.set}
           handlers={{
             onCalibrate: (a, b) => setCalibration({ a, b }),
+            onAlign: (a, b) => {
+              update({ alignment: { a, b } });
+              setTool("select");
+            },
             onCrop: (crop) => {
               update({ plan: { ...plan, crop } });
               setTool("select");
@@ -260,6 +276,25 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
         >
           {(px) => (
             <>
+              {here &&
+                otherFloors.map((other) => {
+                  const o = overlays[other.id];
+                  const there = placements[other.id];
+                  if (!o?.on || !there) return null;
+                  return (
+                    <OverlayFloor
+                      key={other.id}
+                      projectId={session.projectId}
+                      floor={other}
+                      node={similarityNode(planToPlan(there, here))}
+                      opacity={o.opacity}
+                      materials={materials}
+                      models={doc?.apModels ?? {}}
+                      px={px}
+                      currentRotationDeg={plan.rotationDeg}
+                    />
+                  );
+                })}
               {showHeatmap && okResult && pixels && transform && (
                 <HeatmapLayer
                   grid={okResult.grid}
@@ -354,6 +389,10 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                       {
                         value: "calibrate",
                         label: <ToolLabel icon={<IconRuler2 size={14} />} text="スケール校正" />,
+                      },
+                      {
+                        value: "align",
+                        label: <ToolLabel icon={<IconStack2 size={14} />} text="位置合わせ" />,
                       },
                       {
                         value: "crop",
@@ -550,6 +589,21 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
             <Text size="xs">図面上で距離がわかっている 2 点をクリックしてください</Text>
           </Paper>
         )}
+        {tool === "align" && (
+          <Paper
+            pos="absolute"
+            bottom={8}
+            left="50%"
+            style={{ transform: "translateX(-50%)" }}
+            shadow="sm"
+            p="xs"
+            withBorder
+          >
+            <Text size="xs">
+              ほかのフロアと共通の地点（柱の角など）を 2 点、決まった順にクリックしてください
+            </Text>
+          </Paper>
+        )}
         {tool === "crop" && (
           <Paper
             pos="absolute"
@@ -640,6 +694,56 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                   ? `${okResult.radios.length} 本のラジオを計算済み（${okResult.grid.cols}×${okResult.grid.rows} 点、${okResult.elapsedMs.toFixed(0)} ms）`
                   : ""}
           </Text>
+          <Divider />
+          <Text fw={600} size="sm">
+            フロアの重ね表示
+          </Text>
+          <Text size="xs" c={here && !here.aligned ? "orange" : "dimmed"}>
+            {!here
+              ? "スケールを校正すると位置合わせができます"
+              : here.isReference
+                ? "このフロアが位置合わせの基準です。ほかのフロアと同じ地点（柱の角など）を「位置合わせ」で 2 点指定してください。"
+                : here.aligned
+                  ? "基準フロアに位置を合わせました"
+                  : "まだ位置を合わせていません。「位置合わせ」で、基準フロアと同じ地点を 2 点指定してください。"}
+          </Text>
+          {here?.distanceRatio !== undefined && Math.abs(here.distanceRatio - 1) > 0.05 && (
+            <Alert color="orange" p={6}>
+              <Text size="xs">
+                基準点の間の距離が基準フロアと {Math.round(Math.abs(here.distanceRatio - 1) * 100)}%
+                違います。どちらかのスケール校正が誤っている可能性があります。
+              </Text>
+            </Alert>
+          )}
+          {otherFloors.map((other) => {
+            const o = overlays[other.id] ?? { on: false, opacity: 0.4 };
+            const set = (patch: Partial<typeof o>) =>
+              setOverlays((m) => ({ ...m, [other.id]: { ...o, ...patch } }));
+            const there = placements[other.id];
+            return (
+              <Stack key={other.id} gap={2}>
+                <Switch
+                  size="xs"
+                  label={`${other.name} を重ねる${there && !there.aligned ? "（未位置合わせ）" : ""}`}
+                  checked={o.on}
+                  disabled={!there || !here}
+                  onChange={(e) => set({ on: e.currentTarget.checked })}
+                />
+                {o.on && (
+                  <Slider
+                    size="xs"
+                    min={0.1}
+                    max={0.9}
+                    step={0.05}
+                    value={o.opacity}
+                    onChange={(v) => set({ opacity: v })}
+                    label={(v) => `不透明度 ${Math.round(v * 100)}%`}
+                    aria-label={`${other.name} の不透明度`}
+                  />
+                )}
+              </Stack>
+            );
+          })}
           <Divider />
           <Group justify="space-between">
             <Text fw={600} size="sm">
