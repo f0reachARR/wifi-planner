@@ -7,7 +7,12 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
+    "@hocuspocus/provider": "^4.7.0",
     "@playwright/test": "^1.63.0",
-    "@wifi-planner/wall-extraction": "workspace:*"
+    "@types/ws": "^8.18.2",
+    "@wifi-planner/domain": "workspace:*",
+    "@wifi-planner/wall-extraction": "workspace:*",
+    "ws": "^8.22.0",
+    "yjs": "^13.6.33"
   }
 }
