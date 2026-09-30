@@ -2,8 +2,10 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
+import { WebSocketServer } from "ws";
 import { createApp } from "./app.js";
 import { ensureInitialAdmin } from "./bootstrap.js";
+import { createCollab } from "./collab.js";
 import { loadConfig } from "./config.js";
 import { openDb } from "./db/client.js";
 import { dbDocStore } from "./docstore.js";
@@ -15,8 +17,9 @@ const db = await openDb(`file:${path.join(config.dataDir, "app.db")}`);
 await ensureInitialAdmin(db, config.adminUsername, config.adminPassword);
 
 const events = new AccessEvents();
-const docs = dbDocStore(db);
-const app = createApp({ db, docs, events, config });
+const collab = createCollab({ db, docs: dbDocStore(db), events });
+const app = createApp({ db, docs: collab.liveDocs, events, config });
+collab.mount(app);
 
 if (config.webDist) {
   const root = config.webDist;
@@ -25,6 +28,20 @@ if (config.webDist) {
   app.get("*", serveStatic({ root, path: "index.html" }));
 }
 
-serve({ fetch: app.fetch, port: config.port }, (info) => {
-  console.log(`listening on http://localhost:${info.port}`);
-});
+const server = serve(
+  {
+    fetch: app.fetch,
+    port: config.port,
+    websocket: { server: new WebSocketServer({ noServer: true }) },
+  },
+  (info) => console.log(`listening on http://localhost:${info.port}`),
+);
+
+// 停止時に、編集中の文書を保存してから終わる
+const shutdown = async () => {
+  await collab.storeAll();
+  server.close();
+  process.exit(0);
+};
+process.once("SIGTERM", shutdown);
+process.once("SIGINT", shutdown);
