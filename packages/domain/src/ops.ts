@@ -1,8 +1,15 @@
 import * as Y from "yjs";
+import type { Band } from "./band.js";
+import type { ChannelWidth } from "./channels.js";
+import type { Vec2 } from "./geometry.js";
 import {
+  type Ap,
+  type ApModel,
+  Ap as ApSchema,
   type Floor,
   type Material,
   type ProjectSettings,
+  type RadioConfig,
   type Wall,
   Wall as WallSchema,
 } from "./schema.js";
@@ -214,4 +221,131 @@ export function deleteMaterial(ydoc: Y.Doc, materialId: string, replacementId: s
     }
   }
   materialsMap(ydoc).delete(materialId);
+}
+
+// ---- AP（FR-6.1〜6.3） ----
+
+const DEFAULT_CHANNEL: Record<Band, { channel: number; widthMHz: ChannelWidth }> = {
+  "2.4": { channel: 1, widthMHz: 20 },
+  "5": { channel: 36, widthMHz: 80 },
+  "6": { channel: 1, widthMHz: 80 },
+};
+
+/** AP モデルのラジオから、配置したときのラジオの初期設定を作る */
+export function defaultRadios(model: ApModel): RadioConfig[] {
+  return model.radios.map((r) => {
+    const band = r.bands[0]!;
+    return {
+      key: r.key,
+      enabled: true,
+      band,
+      ...DEFAULT_CHANNEL[band],
+      txPowerDbm: r.maxTxPowerDbm[band] ?? 17,
+    };
+  });
+}
+
+export function defaultChannelFor(band: Band) {
+  return DEFAULT_CHANNEL[band];
+}
+
+/** ライブラリの AP モデルをプロジェクトに写す（設計書 2.3 節）。同じ ID の写しがあれば置き換える */
+export function putApModelSnapshot(ydoc: Y.Doc, modelId: string, model: ApModel): void {
+  setEntity(ydoc.getMap("apModels") as YMap, modelId, model);
+}
+
+function apsOf(ydoc: Y.Doc, floorId: string) {
+  const aps = floorCollection(ydoc, floorId, "aps");
+  if (!aps) throw new Error(`フロアがない: ${floorId}`);
+  return aps;
+}
+
+export function readAp(ydoc: Y.Doc, floorId: string, apId: string): Ap | undefined {
+  const map = floorCollection(ydoc, floorId, "aps")?.get(apId);
+  if (!map) return undefined;
+  const parsed = ApSchema.safeParse(fromY(map));
+  return parsed.success ? parsed.data : undefined;
+}
+
+export function addAp(ydoc: Y.Doc, floorId: string, ap: Ap): string {
+  const id = newId();
+  setEntity(apsOf(ydoc, floorId) as YMap, id, ap);
+  return id;
+}
+
+export function updateAp(ydoc: Y.Doc, floorId: string, apId: string, patch: Partial<Ap>): void {
+  const map = apsOf(ydoc, floorId).get(apId);
+  if (map) updateFields(map, patch);
+}
+
+/** ラジオの設定を 1 本だけ書き換える */
+export function updateRadio(
+  ydoc: Y.Doc,
+  floorId: string,
+  apId: string,
+  key: string,
+  patch: Partial<RadioConfig>,
+) {
+  const ap = readAp(ydoc, floorId, apId);
+  if (!ap) return;
+  updateAp(ydoc, floorId, apId, {
+    radios: ap.radios.map((r) => (r.key === key ? { ...r, ...patch } : r)),
+  });
+}
+
+export function deleteAps(ydoc: Y.Doc, floorId: string, apIds: readonly string[]): void {
+  const aps = apsOf(ydoc, floorId);
+  for (const id of apIds) aps.delete(id);
+}
+
+export function moveAps(
+  ydoc: Y.Doc,
+  floorId: string,
+  apIds: readonly string[],
+  dx: number,
+  dy: number,
+) {
+  for (const id of apIds) {
+    const ap = readAp(ydoc, floorId, id);
+    if (ap)
+      updateAp(ydoc, floorId, id, { position: { x: ap.position.x + dx, y: ap.position.y + dy } });
+  }
+}
+
+/** AP を複製する（FR-6.1）。名前には連番を付け、位置を少しずらす */
+export function duplicateAps(
+  ydoc: Y.Doc,
+  floorId: string,
+  apIds: readonly string[],
+  offset: Vec2,
+): string[] {
+  const existing = new Set<string>();
+  for (const f of floorsMap(ydoc).values()) {
+    for (const ap of (f.get("aps") as Y.Map<YMap> | undefined)?.values() ?? [])
+      existing.add(String(ap.get("name")));
+  }
+  const ids: string[] = [];
+  for (const id of apIds) {
+    const ap = readAp(ydoc, floorId, id);
+    if (!ap) continue;
+    const name = nextApName(ap.name, existing);
+    existing.add(name);
+    ids.push(
+      addAp(ydoc, floorId, {
+        ...ap,
+        name,
+        position: { x: ap.position.x + offset.x, y: ap.position.y + offset.y },
+      }),
+    );
+  }
+  return ids;
+}
+
+/** 「AP-3」のような名前の末尾の番号を、使われていない次の番号にする */
+export function nextApName(base: string, existing: ReadonlySet<string>): string {
+  const m = base.match(/^(.*?)(\d+)$/);
+  const prefix = m ? m[1]! : `${base}-`;
+  let n = m ? Number(m[2]) + 1 : 2;
+  while (existing.has(`${prefix}${n}`)) n++;
+  return `${prefix}${n}`;
 }

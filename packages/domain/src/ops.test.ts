@@ -2,11 +2,16 @@ import { describe, expect, it } from "vitest";
 import * as Y from "yjs";
 import { createEmptyProjectDoc } from "./defaults.js";
 import {
+  addAp,
   addFloor,
   addWall,
+  defaultRadios,
   deleteFloor,
   deleteMaterial,
+  duplicateAps,
   mergeWallsById,
+  nextApName,
+  putApModelSnapshot,
   reorderFloors,
   setWallsMaterial,
   splitWallAt,
@@ -97,5 +102,51 @@ describe("壁と材質の操作", () => {
       materialId: "block",
       openings: [{ materialId: "glass" }],
     });
+  });
+});
+
+describe("AP の操作", () => {
+  it("モデルからラジオの初期設定を作り、複製では名前に次の番号を付ける", () => {
+    const ydoc = fresh();
+    const floorId = addFloor(ydoc, { name: "1F", elevationM: 0, heightM: 3 });
+    const model = {
+      name: "AP",
+      radios: [
+        {
+          key: "r0",
+          bands: ["2.4" as const],
+          maxTxPowerDbm: { "2.4": 20 },
+          pattern: { kind: "omni" as const, gainDbi: 3 },
+        },
+        {
+          key: "r1",
+          bands: ["5" as const, "6" as const],
+          maxTxPowerDbm: { "5": 23 },
+          pattern: { kind: "omni" as const, gainDbi: 4 },
+        },
+      ],
+    };
+    putApModelSnapshot(ydoc, "m1", model);
+    const id = addAp(ydoc, floorId, {
+      name: "AP-1",
+      modelId: "m1",
+      position: { x: 0, y: 0 },
+      heightM: 2.7,
+      mount: "ceiling",
+      azimuthDeg: 0,
+      tiltDeg: 0,
+      radios: defaultRadios(model),
+    });
+    const [copy] = duplicateAps(ydoc, floorId, [id], { x: 5, y: 5 });
+    const doc = readProjectDoc(ydoc);
+    expect(doc.floors[floorId]!.aps[id]!.radios).toEqual([
+      { key: "r0", enabled: true, band: "2.4", channel: 1, widthMHz: 20, txPowerDbm: 20 },
+      { key: "r1", enabled: true, band: "5", channel: 36, widthMHz: 80, txPowerDbm: 23 },
+    ]);
+    expect(doc.floors[floorId]!.aps[copy!]).toMatchObject({
+      name: "AP-2",
+      position: { x: 5, y: 5 },
+    });
+    expect(nextApName("会議室", new Set())).toBe("会議室-2");
   });
 });

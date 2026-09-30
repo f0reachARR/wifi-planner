@@ -86,3 +86,16 @@ export const projectFiles = sqliteTable(
   },
   (t) => [primaryKey({ columns: [t.projectId, t.sha256] })],
 );
+
+/** 全ユーザーで共有する AP モデルのライブラリ（FR-5.4）。定義は JSON の文字列で持つ */
+export const apModels = sqliteTable("ap_models", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  vendor: text("vendor"),
+  definition: text("definition").notNull(),
+  createdBy: text("created_by")
+    .notNull()
+    .references(() => users.id),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});

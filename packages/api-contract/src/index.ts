@@ -108,3 +108,13 @@ export type RasterizeRequest = z.infer<typeof RasterizeRequest>;
 
 /** 図面の画像の長辺の上限（ピクセル）。WebGL のテクスチャの上限を考えて決めた（設計書 8 章） */
 export const MAX_PLAN_EDGE_PX = 8192;
+
+/** ライブラリの AP モデル。definition は @wifi-planner/domain の ApModel（source を除く）の形 */
+export const ApModelEntry = z.object({
+  id: z.string(),
+  definition: z.unknown(),
+  createdBy: UserSummary,
+  updatedAt: z.number(),
+  canEdit: z.boolean(),
+});
+export type ApModelEntry = z.infer<typeof ApModelEntry>;

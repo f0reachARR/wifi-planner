@@ -9,6 +9,7 @@ import type { DocStore } from "./docstore.js";
 import type { AccessEvents } from "./events.js";
 import type { BlobStore } from "./files/blobstore.js";
 import { adminRoutes } from "./routes/admin.js";
+import { apModelRoutes } from "./routes/ap-models.js";
 import { authRoutes } from "./routes/auth.js";
 import { fileRoutes } from "./routes/files.js";
 import { projectRoutes } from "./routes/projects.js";
@@ -57,6 +58,7 @@ export function createApp(deps: AppDeps) {
   api.route("/users", userRoutes(deps));
   api.route("/projects", projectRoutes(deps));
   api.route("/projects", fileRoutes(deps));
+  api.route("/ap-models", apModelRoutes(deps));
 
   // 未知の API には JSON の 404 を返し、SPA の index.html に落とさない
   api.all("*", (c) => c.json({ error: "見つかりません" }, 404));

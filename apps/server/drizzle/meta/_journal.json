@@ -15,6 +15,13 @@
       "when": 1790774522344,
       "tag": "0001_petite_sinister_six",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790776486340,
+      "tag": "0002_silent_sage",
+      "breakpoints": true
     }
   ]
 }
