@@ -23,7 +23,6 @@ export const radToDeg = (rad: number): number => (rad * 180) / Math.PI;
 export function polylineLength(points: readonly Vec2[]): number {
   let total = 0;
   for (let i = 1; i < points.length; i++) {
-    // biome-ignore lint/style/noNonNullAssertion: 範囲内の添字
     total += distance(points[i - 1]!, points[i]!);
   }
   return total;
