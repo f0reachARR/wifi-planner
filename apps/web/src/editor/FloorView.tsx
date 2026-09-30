@@ -35,6 +35,7 @@ import {
   IconSettings,
   IconTable,
   IconWall,
+  IconWand,
   IconX,
 } from "@tabler/icons-react";
 import {
@@ -63,9 +64,12 @@ import { useHeatmap } from "../propagation/useHeatmap";
 import { ApInspector } from "./aps/ApInspector";
 import { type ApEntry, ApLayer } from "./aps/ApLayer";
 import { ApTableModal } from "./aps/ApTableModal";
-import { type CanvasTool, PlanCanvas } from "./canvas/PlanCanvas";
+import { type CanvasTool, PlanCanvas, type ToolController } from "./canvas/PlanCanvas";
+import { CandidateLayer } from "./extraction/CandidateLayer";
+import { ExtractionPanel } from "./extraction/ExtractionPanel";
+import { useExtraction } from "./extraction/useExtraction";
 import type { FloorEntry } from "./FloorPanel";
-import type { WallEntry } from "./geometry";
+import { hitTestWall, type WallEntry } from "./geometry";
 import { HeatmapLayer } from "./heatmap/HeatmapLayer";
 import { HoverReadout } from "./heatmap/HoverReadout";
 import { createHoverStore } from "./heatmap/hover";
@@ -169,6 +173,24 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
     [okResult, legend, mode, apFilter],
   );
 
+  // 壁の自動抽出（FR-4.1〜4.3）
+  const extraction = useExtraction(session.projectId, floor.plan);
+  const [extractionOpen, setExtractionOpen] = useState(false);
+  const candidateController: ToolController | undefined =
+    extractionOpen && extraction.candidates.length > 0
+      ? {
+          cursor: "pointer",
+          onDown: (e) => {
+            const hit = hitTestWall(
+              extraction.candidates.map((c) => ({ ...c, materialId: "", openings: [] })),
+              e.p,
+              8 * e.px,
+            );
+            if (hit) extraction.toggle(hit.wall.id);
+          },
+        }
+      : undefined;
+
   const selectedWalls = wallTools.selection.filter((id) => floor.walls[id]);
   const selectedAps = wallTools.selection.filter((id) => floor.aps[id]);
   const floorPeers = peers.filter((p) => p.floorId === floor.id);
@@ -226,7 +248,7 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
         <PlanCanvas
           floor={floor}
           tool={tool}
-          controller={wallTools.controller}
+          controller={candidateController ?? wallTools.controller}
           onPointerMove={hoverStore.set}
           handlers={{
             onCalibrate: (a, b) => setCalibration({ a, b }),
@@ -270,9 +292,30 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                 px={px}
                 planRotationDeg={plan.rotationDeg}
               />
+              {extractionOpen && (
+                <CandidateLayer
+                  candidates={extraction.candidates}
+                  picked={extraction.picked}
+                  px={px}
+                />
+              )}
             </>
           )}
         </PlanCanvas>
+        {extractionOpen && (
+          // 道具のバー（最大 2 段）と重ならないよう、その下に置く
+          <Box pos="absolute" top={100} right={8}>
+            <ExtractionPanel
+              floorId={floor.id}
+              extraction={extraction}
+              materials={materials}
+              onClose={() => {
+                setExtractionOpen(false);
+                extraction.clear();
+              }}
+            />
+          </Box>
+        )}
 
         <Paper pos="absolute" top={8} left={8} shadow="sm" p={4} withBorder>
           <Group gap={4}>
@@ -459,7 +502,7 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
           )}
         </Paper>
 
-        {showHeatmap && legend && okResult && transform && (
+        {showHeatmap && legend && okResult && okResult.radios.length > 0 && transform && (
           <Stack pos="absolute" bottom={8} left={8} gap={6} style={{ pointerEvents: "none" }}>
             <HoverReadout
               store={hoverStore}
@@ -611,6 +654,16 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
               材質
             </Button>
           </Group>
+          {!readOnly && !extractionOpen && (
+            <Button
+              size="compact-xs"
+              variant="light"
+              leftSection={<IconWand size={14} />}
+              onClick={() => setExtractionOpen(true)}
+            >
+              図面から壁を自動抽出
+            </Button>
+          )}
           {(selectedWalls.length > 0 || selectedAps.length === 0) && (
             <WallInspector
               floorId={floor.id}
