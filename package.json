@@ -12,7 +12,8 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",
-    "format": "biome check --write ."
+    "format": "biome check --write .",
+    "e2e": "pnpm --filter @wifi-planner/e2e e2e"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
