@@ -28,7 +28,8 @@ test("管理者がユーザーを作り、プロジェクトを共有する", as
   await adminPage.getByRole("button", { name: "新規作成" }).click();
   await adminPage.getByRole("dialog").getByLabel("名前").fill("本社ビル");
   await adminPage.getByRole("dialog").getByRole("button", { name: "作成" }).click();
-  await expect(adminPage.getByRole("heading", { name: "本社ビル" })).toBeVisible();
+  await expect(adminPage.getByText("本社ビル")).toBeVisible();
+  await expect(adminPage.getByLabel("接続の状態")).toHaveText("同期済み");
   await adminPage.getByRole("link", { name: "プロジェクトの一覧に戻る" }).click();
 
   // bob にはまだ見えない

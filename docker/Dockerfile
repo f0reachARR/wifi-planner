@@ -4,13 +4,18 @@ RUN corepack enable
 WORKDIR /repo
 
 FROM base AS build
+# 依存のインストールをソースの変更から切り離してキャッシュが効くよう、先に package.json だけを置く
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
-COPY packages packages
+COPY packages/domain/package.json packages/domain/
+COPY packages/propagation/package.json packages/propagation/
+COPY packages/wall-extraction/package.json packages/wall-extraction/
+COPY packages/api-contract/package.json packages/api-contract/
+COPY e2e/package.json e2e/
 RUN pnpm install --frozen-lockfile
 COPY . .
-RUN pnpm -r build
+RUN pnpm --filter @wifi-planner/web --filter @wifi-planner/server build
 RUN pnpm --filter @wifi-planner/server deploy --prod --legacy /out
 
 FROM node:24-slim AS runtime

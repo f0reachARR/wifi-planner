@@ -98,3 +98,10 @@ export function encodeProjectDoc(doc: ProjectDoc): Uint8Array {
   writeProjectDoc(ydoc, doc);
   return Y.encodeStateAsUpdate(ydoc);
 }
+
+/** 検証に失敗しても例外にせず結果を返す。ほかのクライアントが書いた壊れた値で画面を落とさないために使う */
+export function tryReadProjectDoc(ydoc: Y.Doc) {
+  const raw: Record<string, Json> = {};
+  for (const key of Object.keys(ROOT_SHAPE)) raw[key] = fromY(ydoc.getMap(key));
+  return ProjectDoc.safeParse(raw);
+}
