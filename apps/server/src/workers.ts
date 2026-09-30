@@ -13,6 +13,11 @@ export type RasterPool = {
     page: number,
     dpi: number,
   ): Promise<{ png: Uint8Array; width: number; height: number; unitsPerPx: number }>;
+  extract(
+    image: Uint8Array,
+    params: Partial<import("@wifi-planner/wall-extraction").ExtractParams>,
+    signal: AbortSignal,
+  ): Promise<{ x: number; y: number }[][]>;
   destroy(): Promise<void>;
 };
 
@@ -27,6 +32,8 @@ export function createRasterPool(): RasterPool {
     pdfInfo: (data) => pool.run({ op: "pdfInfo", data } satisfies RasterTask),
     rasterize: (data, page, dpi) =>
       pool.run({ op: "rasterize", data, page, dpi } satisfies RasterTask),
+    extract: (image, params, signal) =>
+      pool.run({ op: "extract", image, params } satisfies RasterTask, { signal }),
     destroy: () => pool.destroy(),
   };
 }

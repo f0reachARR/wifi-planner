@@ -11,6 +11,7 @@ import type { BlobStore } from "./files/blobstore.js";
 import { adminRoutes } from "./routes/admin.js";
 import { apModelRoutes } from "./routes/ap-models.js";
 import { authRoutes } from "./routes/auth.js";
+import { extractionRoutes } from "./routes/extractions.js";
 import { fileRoutes } from "./routes/files.js";
 import { projectRoutes } from "./routes/projects.js";
 import { userRoutes } from "./routes/users.js";
@@ -59,6 +60,7 @@ export function createApp(deps: AppDeps) {
   api.route("/projects", projectRoutes(deps));
   api.route("/projects", fileRoutes(deps));
   api.route("/ap-models", apModelRoutes(deps));
+  api.route("/projects", extractionRoutes(deps));
 
   // 未知の API には JSON の 404 を返し、SPA の index.html に落とさない
   api.all("*", (c) => c.json({ error: "見つかりません" }, 404));

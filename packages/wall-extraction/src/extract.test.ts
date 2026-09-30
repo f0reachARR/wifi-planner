@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractWalls } from "./extract.js";
+import { DEFAULT_PARAMS, extractWalls } from "./extract.js";
 import { evaluateRecall, makeSyntheticPlanPdf } from "./fixtures.js";
 import { mergeCollinear } from "./merge.js";
 import { rasterizePdfPage, readPdfInfo } from "./pdf.js";
@@ -43,14 +43,35 @@ describe("合成図面からの壁抽出", () => {
 
     const page = await rasterizePdfPage(plan.pdf, 1, 200);
     expect(page.width).toBe(3308);
-    const result = await extractWalls({ data: page.rgba, width: page.width, height: page.height });
     const k = 1 / page.unitsPerPx;
     const truth = plan.walls.map((s) => ({
       a: { x: s.a.x * k, y: s.a.y * k },
       b: { x: s.b.x * k, y: s.b.y * k },
     }));
+    const image = { data: page.rgba, width: page.width, height: page.height };
     // 精度の評価は実際の図面が届いてから行う（設計書 9.3 節）。ここでは退行を防ぐ下限だけを置く
-    const { recall } = evaluateRecall(truth, result.segments, { maxDistance: 6, minCover: 0.8 });
-    expect(recall).toBeGreaterThanOrEqual(0.8);
+    const trace = await extractWalls(image, { ...DEFAULT_PARAMS, method: "trace" });
+    const hough = await extractWalls(image, { ...DEFAULT_PARAMS, method: "hough" });
+    const recall = (r: typeof trace) =>
+      evaluateRecall(truth, r.polylines, { maxDistance: 6, minCover: 0.8 }).recall;
+    expect(recall(trace)).toBeGreaterThanOrEqual(0.95);
+    expect(recall(hough)).toBeGreaterThanOrEqual(0.8);
+  }, 30_000);
+});
+
+describe("処理する範囲", () => {
+  it("範囲を指定すると、その中の壁だけを画像全体の座標で返す", async () => {
+    const plan = await makeSyntheticPlanPdf();
+    const page = await rasterizePdfPage(plan.pdf, 1, 100);
+    const image = { data: page.rgba, width: page.width, height: page.height };
+    const region = { x: 0, y: 0, width: page.width / 2, height: page.height };
+    const r = await extractWalls(image, {
+      ...DEFAULT_PARAMS,
+      minThicknessPx: 3,
+      minLineLengthPx: 20,
+      region,
+    });
+    expect(r.polylines.length).toBeGreaterThan(0);
+    for (const pl of r.polylines) for (const p of pl) expect(p.x).toBeLessThanOrEqual(region.width);
   }, 30_000);
 });

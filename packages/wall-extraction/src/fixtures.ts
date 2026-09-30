@@ -106,9 +106,12 @@ export async function makeSyntheticPlanPdf(): Promise<SyntheticPlan> {
 /** 抽出した線分が正解の壁をどれだけ覆うか。正解の線分ごとに、覆われた長さの割合が minCover 以上なら検出とみなす */
 export function evaluateRecall(
   truth: readonly Segment[],
-  found: readonly Segment[],
+  foundPolylines: readonly { x: number; y: number }[][],
   opts: { maxDistance: number; minCover: number },
 ): { recall: number; missed: Segment[] } {
+  const found: Segment[] = foundPolylines.flatMap((pl) =>
+    pl.slice(1).map((b, i) => ({ a: pl[i]!, b })),
+  );
   const missed: Segment[] = [];
   for (const t of truth) {
     const len = Math.hypot(t.b.x - t.a.x, t.b.y - t.a.y);

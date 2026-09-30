@@ -33,7 +33,7 @@ beforeEach(async () => {
     docs: collab.liveDocs,
     events,
     blobs: new BlobStore(db, "/nonexistent"),
-    raster: { pdfInfo: unused, rasterize: unused, destroy: async () => {} },
+    raster: { pdfInfo: unused, rasterize: unused, extract: unused, destroy: async () => {} },
     config: { cookieSecure: false },
   });
   collab.mount(app);

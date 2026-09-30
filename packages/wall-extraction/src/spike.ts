@@ -1,23 +1,25 @@
 // 技術検証（M1）：A3 相当の図面を 200 dpi でラスタ化し、worker thread で壁を抽出する時間を測る（NFR-2）。
 import { Worker } from "node:worker_threads";
+import type { ExtractMethod } from "./extract.js";
 import { evaluateRecall, makeSyntheticPlanPdf } from "./fixtures.js";
-import type { Segment } from "./merge.js";
+import type { Point } from "./merge.js";
 
 const DPI = 200;
 const plan = await makeSyntheticPlanPdf();
 
 const t0 = performance.now();
+const method = (process.argv[2] ?? "trace") as ExtractMethod;
 const result = await new Promise<{
   width: number;
   height: number;
   unitsPerPx: number;
   rasterMs: number;
   totalMs: number;
-  segments: Segment[];
+  polylines: Point[][];
   timingsMs: Record<string, number>;
 }>((resolve, reject) => {
   const worker = new Worker(new URL("./spike-worker.ts", import.meta.url), {
-    workerData: { pdf: plan.pdf, dpi: DPI },
+    workerData: { pdf: plan.pdf, dpi: DPI, method },
     execArgv: ["--import", "tsx"],
   });
   worker.once("message", (m) => {
@@ -33,7 +35,7 @@ const truthPx = plan.walls.map((s) => ({
   a: { x: s.a.x * pxPerPt, y: s.a.y * pxPerPt },
   b: { x: s.b.x * pxPerPt, y: s.b.y * pxPerPt },
 }));
-const { recall, missed } = evaluateRecall(truthPx, result.segments, {
+const { recall, missed } = evaluateRecall(truthPx, result.polylines, {
   maxDistance: 6,
   minCover: 0.8,
 });
@@ -45,6 +47,6 @@ console.log(
   `worker 内の合計 ${result.totalMs.toFixed(0)} ms、worker 起動を含む合計 ${wallMs.toFixed(0)} ms`,
 );
 console.log(
-  `抽出した線分 ${result.segments.length} 本、正解 ${truthPx.length} 本、再現率 ${(recall * 100).toFixed(0)}%`,
+  `方式 ${method}：抽出した折れ線 ${result.polylines.length} 本、正解 ${truthPx.length} 本、再現率 ${(recall * 100).toFixed(0)}%`,
 );
 if (missed.length) console.log("見逃し", JSON.stringify(missed.slice(0, 5)));
