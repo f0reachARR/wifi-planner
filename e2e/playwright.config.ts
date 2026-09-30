@@ -18,6 +18,7 @@ export default defineConfig({
     // システムに入っている Chrome を使う
     channel: "chrome",
     locale: "ja-JP",
+    screenshot: "only-on-failure",
   },
   webServer: {
     command:

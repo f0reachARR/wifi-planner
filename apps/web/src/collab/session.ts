@@ -19,6 +19,8 @@ export type Presence = {
   /** カーソルの図面座標 */
   cursor?: { x: number; y: number };
   selection?: string[];
+  /** ドラッグ中の壁の仮の移動量（図面座標）。手を離すまでは文書に書かない（設計書 10.3 節） */
+  drag?: { wallIds: string[]; dx: number; dy: number };
 };
 
 export type PeerPresence = Presence & { clientId: number };
@@ -159,10 +161,16 @@ export class ProjectSession {
 
   getSnapshot = () => this.snapshot;
 
-  /** 自分の操作として文書を書き換える。閲覧者のときは何もしない */
-  mutate(fn: (ydoc: Y.Doc) => void) {
+  /**
+   * 自分の操作として文書を書き換える。閲覧者のときは何もしない。
+   * 既定では 1 回の呼び出しを 1 つの undo の単位にする。
+   * 数値の入力のように続けて呼ばれる変更は coalesce を指定し、短い間隔の変更を 1 つにまとめる。
+   */
+  mutate(fn: (ydoc: Y.Doc) => void, opts: { coalesce?: boolean } = {}) {
     if (this.readOnly) return;
+    if (!opts.coalesce) this.undoManager.stopCapturing();
     this.ydoc.transact(() => fn(this.ydoc), LOCAL_ORIGIN);
+    if (!opts.coalesce) this.undoManager.stopCapturing();
   }
 
   undo = () => this.undoManager.undo();

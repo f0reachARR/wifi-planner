@@ -3,7 +3,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { makeSyntheticPlanPdf } from "@wifi-planner/wall-extraction/fixtures";
 import { ADMIN } from "../playwright.config";
-import { apiOf, ensureUser, newUserPage } from "./helpers";
+import { apiOf, ensureUser, newUserPage, tool } from "./helpers";
 
 test("図面の取り込み、スケール校正、回転、トリミング", async ({ browser }, testInfo) => {
   mkdirSync(testInfo.outputDir, { recursive: true });
@@ -27,7 +27,7 @@ test("図面の取り込み、スケール校正、回転、トリミング", as
   await expect(alice.getByText("スケールが未校正です")).toBeVisible();
 
   // 2 点を選んで実距離を入力する（FR-2.4）
-  await alice.getByText("スケール校正", { exact: true }).click();
+  await tool(alice, "スケール校正");
   const canvas = alice.locator("canvas").first();
   const box = (await canvas.boundingBox())!;
   await alice.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.5);
@@ -38,24 +38,29 @@ test("図面の取り込み、スケール校正、回転、トリミング", as
   await expect(alice.getByText(/スケール：1 m ＝ 図面上/)).toBeVisible();
 
   // 回転とトリミング（FR-2.3）
+  await alice.getByRole("button", { name: "図面の調整" }).click();
   await alice.getByRole("button", { name: "右に 90 度回転" }).click();
   await expect(alice.getByLabel("回転角")).toHaveValue("90°");
   await alice.getByRole("button", { name: "左に 90 度回転" }).click();
-  await alice.getByText("トリミング", { exact: true }).click();
+  await alice.keyboard.press("Escape");
+  await tool(alice, "トリミング");
   await alice.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.2);
   await alice.mouse.down();
   await alice.mouse.move(box.x + box.width * 0.8, box.y + box.height * 0.8, { steps: 5 });
   await alice.mouse.up();
+  await alice.getByRole("button", { name: "図面の調整" }).click();
   await expect(alice.getByRole("button", { name: "トリミングを解除" })).toBeVisible();
+  await alice.keyboard.press("Escape");
 
   // 閲覧者にも図面とスケールが届き、編集の道具は出ない
   const bobPage = await newUserPage(browser, "plan-bob", "bob-password");
   await bobPage.goto(`/projects/${project.id}`);
   await expect(bobPage.getByText(/スケール：1 m ＝ 図面上/)).toBeVisible();
   await expect(bobPage.getByText("スケール校正", { exact: true })).toHaveCount(0);
+  await expect(bobPage.getByRole("button", { name: "図面の調整" })).toHaveCount(0);
 
   // alice のカーソルが bob の画面に出ているかは、スクリーンショットで確かめる
-  await alice.getByText("移動", { exact: true }).click();
+  await tool(alice, "移動");
   await alice.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.4);
   await alice.mouse.move(box.x + box.width * 0.5 + 5, box.y + box.height * 0.4 + 5);
   await expect(

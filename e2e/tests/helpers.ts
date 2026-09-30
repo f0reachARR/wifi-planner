@@ -43,3 +43,57 @@ export function apiOf(page: Page) {
       page.request.put(`/api${path}`, { data, headers: HEADERS }),
   };
 }
+
+/** フロアを追加し、合成図面の PDF を取り込んでスケールを校正する */
+export async function addFloorWithPlan(page: Page, pdfPath: string) {
+  await page.getByRole("button", { name: "追加" }).click();
+  await page.getByRole("button", { name: "図面を取り込む" }).click();
+  await page.getByRole("dialog").locator('input[type="file"]').setInputFiles(pdfPath);
+  await page.getByRole("button", { name: "1 ページ" }).click();
+  await page.getByText("100 dpi", { exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "取り込む", exact: true }).click();
+  await expect(page.getByText("スケールが未校正です")).toBeVisible();
+  const box = await canvasBox(page);
+  await tool(page, "スケール校正");
+  await page.mouse.click(box.x + box.width * 0.1, box.y + box.height * 0.5);
+  await page.mouse.click(box.x + box.width * 0.9, box.y + box.height * 0.5);
+  await page.getByRole("dialog").getByLabel("2 点間の実際の距離").fill("30");
+  await page.getByRole("dialog").getByRole("button", { name: "設定" }).click();
+  await expect(page.getByText("スケールが未校正です")).toHaveCount(0);
+}
+
+export async function canvasBox(page: Page) {
+  const box = await page.locator("canvas").first().boundingBox();
+  if (!box) throw new Error("キャンバスがない");
+  return box;
+}
+
+/** 道具のバーの道具を選ぶ。道具のバーはメイン領域の最初のラジオボタンの組 */
+export async function tool(page: Page, name: string) {
+  await page
+    .getByRole("main")
+    .getByRole("radiogroup")
+    .first()
+    .getByText(name, { exact: true })
+    .click();
+}
+
+/** キャンバス上の相対位置 (fx, fy) を画面座標にする */
+export async function at(page: Page, fx: number, fy: number) {
+  const box = await canvasBox(page);
+  return { x: box.x + box.width * fx, y: box.y + box.height * fy };
+}
+
+export async function drag(page: Page, from: [number, number], to: [number, number]) {
+  const a = await at(page, ...from);
+  const b = await at(page, ...to);
+  await page.mouse.move(a.x, a.y);
+  await page.mouse.down();
+  await page.mouse.move(b.x, b.y, { steps: 8 });
+  await page.mouse.up();
+}
+
+export async function click(page: Page, fx: number, fy: number) {
+  const p = await at(page, fx, fy);
+  await page.mouse.click(p.x, p.y);
+}

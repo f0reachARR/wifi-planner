@@ -20,7 +20,27 @@ import { fileUrl } from "../../api/client";
 import { useSession, useSessionState } from "../../collab/react";
 import type { FloorEntry } from "../FloorPanel";
 
-export type CanvasTool = "pan" | "calibrate" | "crop";
+export type CanvasTool = "pan" | "calibrate" | "crop" | "select" | "wall" | "split" | "opening";
+
+/** 道具に渡すポインタの情報。p は図面座標、px は画面の 1 ピクセルが図面座標でいくつか */
+export type PointerInfo = {
+  p: Vec2;
+  px: number;
+  shift: boolean;
+  mod: boolean;
+  alt: boolean;
+  /** ブラウザが数えた連続クリックの回数。離れた位置のクリックは数えない */
+  clickCount: number;
+};
+
+/** パン、スケール校正、トリミング以外の道具の操作 */
+export type ToolController = {
+  cursor?: string;
+  onDown?(e: PointerInfo): void;
+  onMove?(e: PointerInfo): void;
+  onUp?(e: PointerInfo): void;
+  onDoubleClick?(e: PointerInfo): void;
+};
 
 export type View = { x: number; y: number; scale: number };
 
@@ -107,9 +127,11 @@ export function PlanCanvas(props: {
   floor: FloorEntry;
   tool: CanvasTool;
   handlers?: CanvasHandlers;
-  children?: ReactNode;
+  controller?: ToolController;
+  /** 図面座標で描く重ね描き。引数は画面の 1 ピクセルが図面座標でいくつか */
+  children?: (px: number) => ReactNode;
 }) {
-  const { floor, tool, handlers } = props;
+  const { floor, tool, handlers, controller } = props;
   const session = useSession();
   const { peers } = useSessionState();
   const { ref: boxRef, width, height } = useElementSize();
@@ -171,6 +193,15 @@ export function PlanCanvas(props: {
     });
   };
 
+  const info = (e: MouseEvent, p: Vec2): PointerInfo => ({
+    p,
+    px: 1 / view.scale,
+    shift: e.shiftKey,
+    mod: e.ctrlKey || e.metaKey,
+    alt: e.altKey,
+    clickCount: e.detail,
+  });
+
   const onMouseDown = (e: KonvaEventObject<MouseEvent>) => {
     const stage = e.target.getStage();
     const pointer = stage?.getPointerPosition();
@@ -192,6 +223,8 @@ export function PlanCanvas(props: {
       }
     } else if (tool === "crop") {
       setDraft({ a: p, b: p });
+    } else {
+      controller?.onDown?.(info(e.evt, p));
     }
   };
 
@@ -208,13 +241,16 @@ export function PlanCanvas(props: {
     const p = pointerPlan();
     sendCursor(p);
     if (draft && p) setDraft({ ...draft, b: p });
+    if (p) controller?.onMove?.(info(e.evt, p));
   };
 
-  const onMouseUp = () => {
+  const onMouseUp = (e: KonvaEventObject<MouseEvent>) => {
     if (panning) {
       setPanning(undefined);
       return;
     }
+    const p = pointerPlan();
+    if (p) controller?.onUp?.(info(e.evt, p));
     if (tool === "crop" && draft) {
       const rect = normalizeRect(draft.a, draft.b);
       // クリックしただけのような小さな範囲は無視する
@@ -234,6 +270,10 @@ export function PlanCanvas(props: {
       ref={boxRef}
       h="100%"
       w="100%"
+      // キーボード操作（Enter、Delete など）を受けるため、キャンバスを押したらフォーカスを移す
+      tabIndex={0}
+      aria-label="図面"
+      onMouseDown={(e) => e.currentTarget.focus({ preventScroll: true })}
       style={{
         overflow: "hidden",
         cursor: panning ? "grabbing" : tool === "pan" ? "grab" : "crosshair",
@@ -256,6 +296,10 @@ export function PlanCanvas(props: {
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
           onMouseUp={onMouseUp}
+          onDblClick={(e) => {
+            const p = pointerPlan();
+            if (p) controller?.onDoubleClick?.(info(e.evt, p));
+          }}
           onMouseLeave={() => {
             setPanning(undefined);
             sendCursor(undefined);
@@ -280,7 +324,7 @@ export function PlanCanvas(props: {
                     />
                   </Group>
                 )}
-                {props.children}
+                {props.children?.(px)}
 
                 {tool === "calibrate" && floor.scale && !draft && (
                   <Line
