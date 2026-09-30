@@ -738,7 +738,7 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                     value={o.opacity}
                     onChange={(v) => set({ opacity: v })}
                     label={(v) => `不透明度 ${Math.round(v * 100)}%`}
-                    aria-label={`${other.name} の不透明度`}
+                    thumbLabel={`${other.name} の不透明度`}
                   />
                 )}
               </Stack>

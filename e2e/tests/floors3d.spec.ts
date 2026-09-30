@@ -1,0 +1,75 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { expect, test } from "@playwright/test";
+import { makeSyntheticPlanPdf } from "@wifi-planner/wall-extraction/fixtures";
+import { ADMIN } from "../playwright.config";
+import { addFloorWithPlan, apiOf, click, newUserPage, tool } from "./helpers";
+
+test("フロアの位置合わせ、重ね表示、疑似 3D ビュー", async ({ browser }, testInfo) => {
+  mkdirSync(testInfo.outputDir, { recursive: true });
+  const pdfPath = path.join(testInfo.outputDir, "plan.pdf");
+  writeFileSync(pdfPath, (await makeSyntheticPlanPdf()).pdf);
+
+  const page = await newUserPage(browser, ADMIN.username, ADMIN.password);
+  await apiOf(page).post("/ap-models", {
+    name: "3D 用 AP",
+    radios: [
+      {
+        key: "r5",
+        bands: ["5"],
+        maxTxPowerDbm: { "5": 20 },
+        pattern: { kind: "omni", gainDbi: 3 },
+      },
+    ],
+  });
+  const project = await apiOf(page).post<{ id: string }>("/projects", { name: "複数フロア" });
+  await page.goto(`/projects/${project.id}`);
+
+  // 1F：図面、壁、AP、基準点
+  await addFloorWithPlan(page, pdfPath);
+  await tool(page, "壁");
+  await click(page, 0.3, 0.3);
+  const end = await (async () => {
+    const box = (await page.locator("canvas").first().boundingBox())!;
+    return { x: box.x + box.width * 0.7, y: box.y + box.height * 0.3 };
+  })();
+  await page.mouse.dblclick(end.x, end.y);
+  await tool(page, "AP");
+  await page.getByRole("combobox", { name: "置く AP モデル" }).click();
+  await page.getByRole("option", { name: "3D 用 AP" }).click();
+  await click(page, 0.5, 0.5);
+  await tool(page, "位置合わせ");
+  await click(page, 0.2, 0.2);
+  await click(page, 0.8, 0.2);
+  await expect(page.getByText("このフロアが位置合わせの基準です", { exact: false })).toBeVisible();
+
+  // 2F：同じ図面を取り込み、同じ 2 点で位置を合わせる
+  await addFloorWithPlan(page, pdfPath);
+  await expect(page.getByText("まだ位置を合わせていません", { exact: false })).toBeVisible();
+  await tool(page, "位置合わせ");
+  await click(page, 0.2, 0.2);
+  await click(page, 0.8, 0.2);
+  await expect(page.getByText("基準フロアに位置を合わせました")).toBeVisible();
+
+  // 1F を重ねる（FR-3.3）
+  await page.getByRole("switch", { name: "1F を重ねる" }).check();
+  // ヒートマップの計算も終わっている（AP のないフロアでも「計算中」のままにならない）
+  await expect(page.getByText(/0 本のラジオを計算済み/)).toBeVisible();
+  await expect(page.getByRole("slider", { name: "1F の不透明度" })).toBeVisible();
+
+  // 疑似 3D ビュー（FR-3.4〜3.6）
+  await page.getByText("3D", { exact: true }).click();
+  await expect(page.locator("canvas")).toBeVisible();
+  await expect(page.getByLabel("表示中のフロア")).toHaveText(
+    "表示中のフロア：1F（床 0 m）、2F（床 3 m）",
+  );
+  if (process.env.SCREENSHOT_DIR) {
+    // テクスチャの読み込みを待ってから撮る
+    await page.waitForTimeout(1500);
+    await page.screenshot({ path: `${process.env.SCREENSHOT_DIR}/view3d.png` });
+  }
+
+  // 2D に戻すと編集の画面に戻る
+  await page.getByText("2D（編集）").click();
+  await expect(page.getByRole("button", { name: "図面の調整" })).toBeVisible();
+});

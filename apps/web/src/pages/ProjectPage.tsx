@@ -6,9 +6,10 @@ import { Link, useParams } from "react-router";
 import { keys, useMe, useProject } from "../api/hooks";
 import { ProjectSessionProvider, useSession, useSessionState } from "../collab/react";
 import { colorForUser } from "../collab/session";
-import { EditorHeader } from "../editor/EditorHeader";
+import { EditorHeader, type EditorView } from "../editor/EditorHeader";
 import { FloorPanel, sortedFloors } from "../editor/FloorPanel";
 import { FloorView } from "../editor/FloorView";
+import { View3D } from "../editor/view3d/View3D";
 
 export function ProjectPage() {
   const { projectId = "" } = useParams();
@@ -55,6 +56,7 @@ function Editor({ project }: { project: Project }) {
   const session = useSession();
   const { doc, state, synced } = useSessionState();
   const [floorId, setFloorId] = useState<string>();
+  const [view, setView] = useState<EditorView>("2d");
   const floors = sortedFloors(doc?.floors ?? {});
   const floor = floors.find((f) => f.id === floorId);
 
@@ -74,7 +76,7 @@ function Editor({ project }: { project: Project }) {
   return (
     <AppShell header={{ height: 48 }} navbar={{ width: 240, breakpoint: 0 }}>
       <AppShell.Header>
-        <EditorHeader project={project} />
+        <EditorHeader project={project} view={view} onViewChange={setView} />
       </AppShell.Header>
       <AppShell.Navbar>
         <FloorPanel selectedId={floorId} onSelect={setFloorId} />
@@ -85,6 +87,8 @@ function Editor({ project }: { project: Project }) {
             <Center h="100%">
               <Loader />
             </Center>
+          ) : view === "3d" ? (
+            <View3D />
           ) : floor ? (
             <FloorView key={floor.id} floor={floor} />
           ) : (

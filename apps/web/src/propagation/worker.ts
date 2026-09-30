@@ -4,9 +4,8 @@
 import { buildFloorScene, computeField } from "@wifi-planner/propagation";
 import type { ComputeRequest, ComputeResponse, RadioField } from "./protocol";
 
-/** ラジオごとの計算結果。キーはラジオの計算に効く値を並べた文字列 */
-const cache = new Map<string, Float32Array>();
-let cachedEnvironment = "";
+/** フロアと帯域ごとの、ラジオの計算結果。キーはラジオの計算に効く値を並べた文字列 */
+const caches = new Map<string, { environment: string; fields: Map<string, Float32Array> }>();
 
 self.onmessage = (e: MessageEvent<ComputeRequest>) => {
   const { id, doc, floorId, band } = e.data;
@@ -19,17 +18,20 @@ self.onmessage = (e: MessageEvent<ComputeRequest>) => {
   const floor = doc.floors[floorId]!;
   // 壁、材質、設定、図面の変換が変わったら、すべてのラジオを計算し直す
   const environment = JSON.stringify([
-    band,
     floor.walls,
     doc.materials,
     doc.settings,
     floor.scale,
     floor.plan,
   ]);
-  if (environment !== cachedEnvironment) {
-    cache.clear();
-    cachedEnvironment = environment;
+  // 疑似 3D ビューでは全フロアを続けて計算するので、フロアと帯域ごとにキャッシュを分ける
+  const cacheKey = `${floorId}:${band}`;
+  let entry = caches.get(cacheKey);
+  if (!entry || entry.environment !== environment) {
+    entry = { environment, fields: new Map() };
+    caches.set(cacheKey, entry);
   }
+  const cache = entry.fields;
   const used = new Set<string>();
   let computed = 0;
   const radios: RadioField[] = scene.radios.map((r) => {

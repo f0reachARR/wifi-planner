@@ -1,4 +1,4 @@
-import { ActionIcon, Avatar, Badge, Group, Text, Tooltip } from "@mantine/core";
+import { ActionIcon, Avatar, Badge, Group, SegmentedControl, Text, Tooltip } from "@mantine/core";
 import { useHotkeys } from "@mantine/hooks";
 import { IconArrowBackUp, IconArrowForwardUp, IconChevronLeft } from "@tabler/icons-react";
 import type { Project } from "@wifi-planner/api-contract";
@@ -13,7 +13,14 @@ const STATE_LABELS: Record<ConnectionState, { label: string; color: string }> = 
   denied: { label: "権限なし", color: "red" },
 };
 
-export function EditorHeader({ project }: { project: Project }) {
+export type EditorView = "2d" | "3d";
+
+export function EditorHeader(props: {
+  project: Project;
+  view: EditorView;
+  onViewChange: (v: EditorView) => void;
+}) {
+  const { project } = props;
   const session = useSession();
   const { state, canUndo, canRedo, peers } = useSessionState();
   const readOnly = session.readOnly;
@@ -38,6 +45,16 @@ export function EditorHeader({ project }: { project: Project }) {
         <Text fw={600} truncate>
           {project.name}
         </Text>
+        <SegmentedControl
+          size="xs"
+          aria-label="表示の切り替え"
+          value={props.view}
+          onChange={(v) => props.onViewChange(v as EditorView)}
+          data={[
+            { value: "2d", label: "2D（編集）" },
+            { value: "3d", label: "3D" },
+          ]}
+        />
         {readOnly && (
           <Badge color="gray" variant="light">
             閲覧のみ

@@ -122,10 +122,12 @@ export class ProjectSession {
   private readDoc() {
     if (!this.docDirty && this.snapshot) return this.snapshot.doc;
     this.docDirty = false;
+    // 同期やブラウザからの読み込みが終わる前の空の文書は、まだ読まない
+    if (this.ydoc.getMap("meta").size === 0) return this.snapshot?.doc;
     const parsed = tryReadProjectDoc(this.ydoc);
     // ほかのクライアントが書いた壊れた値で画面を落とさないよう、検証に失敗したら直前の状態を使う
     if (!parsed.success) {
-      console.warn("文書の検証に失敗", parsed.error);
+      console.warn("文書の検証に失敗", parsed.error.message);
       return this.snapshot?.doc;
     }
     return parsed.data;
