@@ -5,3 +5,4 @@ export * from "./defaults.js";
 export * from "./geometry.js";
 export * from "./materials.js";
 export * from "./schema.js";
+export * from "./walls.js";

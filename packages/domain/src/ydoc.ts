@@ -76,7 +76,8 @@ export function setEntity(
 /** フロアの要素の入れ子の構造。フロアを追加するときに setEntity へ渡す */
 export const FLOOR_SHAPE = ROOT_SHAPE.floors.entities;
 
-function fromY(value: unknown): Json {
+/** Y.Map を普通の JSON 値にする。検証はしない */
+export function fromY(value: unknown): Json {
   if (value instanceof Y.Map) {
     const out: Record<string, Json> = {};
     for (const [k, v] of value.entries()) out[k] = fromY(v);
