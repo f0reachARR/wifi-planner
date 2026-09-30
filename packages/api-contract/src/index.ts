@@ -151,3 +151,12 @@ export const ExtractionJob = z.object({
   elapsedMs: z.number().optional(),
 });
 export type ExtractionJob = z.infer<typeof ExtractionJob>;
+
+/** 現場写真のアップロードの結果（FR-9.1、FR-9.4） */
+export const PhotoUploadResult = z.object({
+  sha256: z.string(),
+  thumbSha256: z.string(),
+  /** EXIF の撮影日時。タイムゾーンのない「年月日時分秒」で、EXIF にオフセットがあれば付ける */
+  takenAt: z.string().optional(),
+});
+export type PhotoUploadResult = z.infer<typeof PhotoUploadResult>;
