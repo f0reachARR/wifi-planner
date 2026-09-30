@@ -2,6 +2,8 @@ import { Database } from "@hocuspocus/extension-database";
 import { type Connection, Hocuspocus } from "@hocuspocus/server";
 import { upgradeWebSocket } from "@hono/node-server";
 import type { ProjectRole } from "@wifi-planner/api-contract";
+import { migrateDoc, SCHEMA_VERSION } from "@wifi-planner/domain";
+import { encodeProjectDoc, fromY } from "@wifi-planner/domain/ydoc";
 import { eq } from "drizzle-orm";
 import type { Env, Hono } from "hono";
 import * as Y from "yjs";
@@ -46,7 +48,10 @@ export function createCollab({
     },
     extensions: [
       new Database({
-        fetch: async ({ documentName }) => (await docs.getState(documentName)) ?? null,
+        fetch: async ({ documentName }) => {
+          const state = await docs.getState(documentName);
+          return state ? migrateState(state) : null;
+        },
         store: async ({ documentName, state }) => {
           await docs.putState(documentName, state);
           await db
@@ -118,4 +123,19 @@ export function createCollab({
   };
 
   return { hocuspocus, liveDocs, mount, storeAll };
+}
+
+/**
+ * 文書のスキーマが古ければ、今の版に変換した状態を返す（設計書 2.2 節）。
+ * 変換では文書を作り直すので編集履歴は引き継がないが、版の変わり目は更新のときだけなので問題にならない。
+ */
+export function migrateState(state: Uint8Array): Uint8Array {
+  const ydoc = new Y.Doc();
+  Y.applyUpdate(ydoc, state);
+  const version = Number(ydoc.getMap("meta").get("schemaVersion") ?? 1);
+  if (version >= SCHEMA_VERSION) return state;
+  const raw: Record<string, unknown> = {};
+  for (const key of ["meta", "settings", "materials", "apModels", "floors"])
+    raw[key] = fromY(ydoc.getMap(key));
+  return encodeProjectDoc(migrateDoc(raw));
 }
