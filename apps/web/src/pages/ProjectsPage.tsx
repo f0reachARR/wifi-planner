@@ -66,7 +66,13 @@ export function ProjectsPage() {
     } else if (dialog?.kind === "duplicate") {
       duplicate.mutate(
         { id: dialog.project.id, name },
-        { onSuccess: () => (close(), notifyDone("複製しました")), onError: notifyError },
+        {
+          onSuccess: () => {
+            close();
+            notifyDone("複製しました");
+          },
+          onError: notifyError,
+        },
       );
     }
   };
