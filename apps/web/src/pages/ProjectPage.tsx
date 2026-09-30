@@ -1,4 +1,4 @@
-import { Anchor, AppShell, Center, Loader, Stack, Text, Title } from "@mantine/core";
+import { Anchor, AppShell, Box, Center, Loader, Stack, Text } from "@mantine/core";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Project } from "@wifi-planner/api-contract";
 import { useEffect, useState } from "react";
@@ -8,6 +8,7 @@ import { ProjectSessionProvider, useSession, useSessionState } from "../collab/r
 import { colorForUser } from "../collab/session";
 import { EditorHeader } from "../editor/EditorHeader";
 import { FloorPanel, sortedFloors } from "../editor/FloorPanel";
+import { FloorView } from "../editor/FloorView";
 
 export function ProjectPage() {
   const { projectId = "" } = useParams();
@@ -79,20 +80,19 @@ function Editor({ project }: { project: Project }) {
         <FloorPanel selectedId={floorId} onSelect={setFloorId} />
       </AppShell.Navbar>
       <AppShell.Main h="100vh">
-        <Center h="calc(100vh - 48px)">
+        <Box h="calc(100vh - 48px)">
           {!doc && !synced ? (
-            <Loader />
+            <Center h="100%">
+              <Loader />
+            </Center>
           ) : floor ? (
-            <Stack align="center" gap="xs">
-              <Title order={3}>{floor.name}</Title>
-              <Text c="dimmed" size="sm">
-                図面がまだありません
-              </Text>
-            </Stack>
+            <FloorView key={floor.id} floor={floor} />
           ) : (
-            <Text c="dimmed">左の「追加」からフロアを作成してください</Text>
+            <Center h="100%">
+              <Text c="dimmed">左の「追加」からフロアを作成してください</Text>
+            </Center>
           )}
-        </Center>
+        </Box>
       </AppShell.Main>
     </AppShell>
   );
