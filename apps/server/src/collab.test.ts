@@ -19,13 +19,15 @@ const unused = () => Promise.reject(new Error("このテストでは使わない
 
 let server: Server;
 let baseUrl: string;
+let store: ReturnType<typeof dbDocStore>;
 const providers: HocuspocusProvider[] = [];
 const sockets: HocuspocusProviderWebsocket[] = [];
 
 beforeEach(async () => {
   const db = await openDb(":memory:");
   const events = new AccessEvents();
-  const collab = createCollab({ db, docs: dbDocStore(db), events });
+  store = dbDocStore(db);
+  const collab = createCollab({ db, docs: store, events });
   const app = createApp({
     db,
     docs: collab.liveDocs,
@@ -196,6 +198,30 @@ describe("同期サーバ（FR-10.1、FR-10.2）", () => {
 
     settingsOf(b.ydoc).set("receiverHeightM", 2);
     await until(() => settingsOf(a.ydoc).get("receiverHeightM") === 2);
+  });
+
+  it("最後の編集者が接続を閉じても、保存のデバウンス中の変更は DB に残る", async () => {
+    const alice = await login("alice");
+    const project = (await (
+      await alice.call("POST", "/projects", { name: "p" })
+    ).json()) as Project;
+    const a = connect(project.id, alice.cookie);
+    await until(() => a.provider.isSynced);
+    settingsOf(a.ydoc).set("receiverHeightM", 1.7);
+    await new Promise((r) => setTimeout(r, 100));
+    for (const p of providers.splice(0)) p.destroy();
+    for (const s of sockets.splice(0)) s.destroy();
+
+    const stored = async () => {
+      const state = await store.getState(project.id);
+      const ydoc = new Y.Doc();
+      if (state) Y.applyUpdate(ydoc, state);
+      return settingsOf(ydoc).get("receiverHeightM");
+    };
+    const start = Date.now();
+    while ((await stored()) !== 1.7 && Date.now() - start < 1000)
+      await new Promise((r) => setTimeout(r, 50));
+    expect(await stored()).toBe(1.7);
   });
 
   it("開いている文書の複製には、保存前の最新の変更も含まれる", async () => {

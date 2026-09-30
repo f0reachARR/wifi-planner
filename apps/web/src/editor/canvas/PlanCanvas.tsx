@@ -40,6 +40,8 @@ export type ToolController = {
   onMove?(e: PointerInfo): void;
   onUp?(e: PointerInfo): void;
   onDoubleClick?(e: PointerInfo): void;
+  /** ポインタがキャンバスの外に出たとき。作りかけのドラッグを捨てる */
+  onCancel?(): void;
 };
 
 export type View = { x: number; y: number; scale: number };
@@ -303,6 +305,7 @@ export function PlanCanvas(props: {
           onMouseLeave={() => {
             setPanning(undefined);
             sendCursor(undefined);
+            controller?.onCancel?.();
           }}
           onContextMenu={(e) => e.evt.preventDefault()}
         >

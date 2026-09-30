@@ -155,7 +155,14 @@ export function useWallTools(opts: {
     setSelection([wall.id]);
   };
 
-  const controller: ToolController = {};
+  const controller: ToolController = {
+    onCancel: () => {
+      if (gesture?.kind === "move" && gesture.moved) session.setPresence({ drag: undefined });
+      setGesture(undefined);
+      setHover(undefined);
+      setWallHover(undefined);
+    },
+  };
 
   if (tool === "wall" && !readOnly) {
     controller.cursor = "crosshair";

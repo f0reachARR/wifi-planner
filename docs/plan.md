@@ -5,6 +5,8 @@
 
 各マイルストーンの「完了条件」を満たしたら次に進む。
 
+進み具合：M0〜M5 は完了。
+
 ## M0 リポジトリの基盤
 
 - pnpm workspaces、TypeScript の共通設定、Biome、Vitest を整える。
