@@ -7,10 +7,13 @@ import type { Config } from "./config.js";
 import type { Db } from "./db/client.js";
 import type { DocStore } from "./docstore.js";
 import type { AccessEvents } from "./events.js";
+import type { BlobStore } from "./files/blobstore.js";
 import { adminRoutes } from "./routes/admin.js";
 import { authRoutes } from "./routes/auth.js";
+import { fileRoutes } from "./routes/files.js";
 import { projectRoutes } from "./routes/projects.js";
 import { userRoutes } from "./routes/users.js";
+import type { RasterPool } from "./workers.js";
 
 export type AppEnv = { Variables: { user: AuthUser | undefined } };
 
@@ -18,6 +21,8 @@ export type AppDeps = {
   db: Db;
   docs: DocStore;
   events: AccessEvents;
+  blobs: BlobStore;
+  raster: RasterPool;
   config: Pick<Config, "cookieSecure">;
 };
 
@@ -51,6 +56,7 @@ export function createApp(deps: AppDeps) {
   api.route("/admin", adminRoutes(deps));
   api.route("/users", userRoutes(deps));
   api.route("/projects", projectRoutes(deps));
+  api.route("/projects", fileRoutes(deps));
 
   // 未知の API には JSON の 404 を返し、SPA の index.html に落とさない
   api.all("*", (c) => c.json({ error: "見つかりません" }, 404));

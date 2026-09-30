@@ -16,8 +16,8 @@ const externalizeDependencies = {
 };
 
 const result = await build({
-  entryPoints: ["src/main.ts"],
-  outfile: "dist/main.js",
+  entryPoints: { main: "src/main.ts", "raster-worker": "src/raster-worker.ts" },
+  outdir: "dist",
   bundle: true,
   platform: "node",
   format: "esm",

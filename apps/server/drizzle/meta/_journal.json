@@ -8,6 +8,13 @@
       "when": 1790773232023,
       "tag": "0000_sour_northstar",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1790774522344,
+      "tag": "0001_petite_sinister_six",
+      "breakpoints": true
     }
   ]
 }

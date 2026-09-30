@@ -61,3 +61,28 @@ export const yjsDocuments = sqliteTable("yjs_documents", {
   state: blob("state", { mode: "buffer" }).notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
+
+/** アップロードしたファイルの実体。SHA-256 をファイル名にしてアップロード領域に置く（設計書 2 章） */
+export const blobs = sqliteTable("blobs", {
+  sha256: text("sha256").primaryKey(),
+  mime: text("mime").notNull(),
+  size: integer("size").notNull(),
+  createdAt: integer("created_at").notNull(),
+});
+
+/** プロジェクトとファイルの対応。ファイルを返すときの権限の確認に使う */
+export const projectFiles = sqliteTable(
+  "project_files",
+  {
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    sha256: text("sha256")
+      .notNull()
+      .references(() => blobs.sha256),
+    kind: text("kind", { enum: ["plan_source", "plan_image", "photo", "thumbnail"] }).notNull(),
+    originalName: text("original_name"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.projectId, t.sha256] })],
+);

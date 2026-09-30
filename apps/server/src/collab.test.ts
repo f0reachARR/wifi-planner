@@ -10,9 +10,12 @@ import { createCollab } from "./collab.js";
 import { openDb } from "./db/client.js";
 import { dbDocStore } from "./docstore.js";
 import { AccessEvents } from "./events.js";
+import { BlobStore } from "./files/blobstore.js";
 import { createUser } from "./repo/users.js";
 
 type Server = ReturnType<typeof serve>;
+
+const unused = () => Promise.reject(new Error("このテストでは使わない"));
 
 let server: Server;
 let baseUrl: string;
@@ -23,7 +26,14 @@ beforeEach(async () => {
   const db = await openDb(":memory:");
   const events = new AccessEvents();
   const collab = createCollab({ db, docs: dbDocStore(db), events });
-  const app = createApp({ db, docs: collab.liveDocs, events, config: { cookieSecure: false } });
+  const app = createApp({
+    db,
+    docs: collab.liveDocs,
+    events,
+    blobs: new BlobStore(db, "/nonexistent"),
+    raster: { pdfInfo: unused, rasterize: unused, destroy: async () => {} },
+    config: { cookieSecure: false },
+  });
   collab.mount(app);
   for (const name of ["alice", "bob", "carol"]) {
     await createUser(db, { username: name, password: "password123", isAdmin: false });

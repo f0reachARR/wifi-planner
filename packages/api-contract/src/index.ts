@@ -76,3 +76,35 @@ export type SetMemberRequest = z.infer<typeof SetMemberRequest>;
 
 export const ApiError = z.object({ error: z.string() });
 export type ApiError = z.infer<typeof ApiError>;
+
+/** ラスタ化した図面の画像。フロアの plan に書く値の一部 */
+export const PlanImageInfo = z.object({
+  sourceSha256: z.string(),
+  imageSha256: z.string(),
+  widthPx: z.number().int(),
+  heightPx: z.number().int(),
+  unitsPerPx: z.number(),
+  page: z.number().int().optional(),
+  dpi: z.number().optional(),
+});
+export type PlanImageInfo = z.infer<typeof PlanImageInfo>;
+
+/** 図面のアップロードの結果。PDF はページを選んでからラスタ化する（FR-2.2） */
+export const PlanUploadResult = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("pdf"),
+    sourceSha256: z.string(),
+    pages: z.array(z.object({ widthPt: z.number(), heightPt: z.number() })),
+  }),
+  z.object({ kind: z.literal("image"), plan: PlanImageInfo }),
+]);
+export type PlanUploadResult = z.infer<typeof PlanUploadResult>;
+
+export const RasterizeRequest = z.object({
+  page: z.number().int().min(1),
+  dpi: z.number().min(36).max(600),
+});
+export type RasterizeRequest = z.infer<typeof RasterizeRequest>;
+
+/** 図面の画像の長辺の上限（ピクセル）。WebGL のテクスチャの上限を考えて決めた（設計書 8 章） */
+export const MAX_PLAN_EDGE_PX = 8192;

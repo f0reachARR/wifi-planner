@@ -10,6 +10,8 @@ import { loadConfig } from "./config.js";
 import { openDb } from "./db/client.js";
 import { dbDocStore } from "./docstore.js";
 import { AccessEvents } from "./events.js";
+import { BlobStore } from "./files/blobstore.js";
+import { createRasterPool } from "./workers.js";
 
 const config = loadConfig();
 mkdirSync(config.dataDir, { recursive: true });
@@ -18,7 +20,9 @@ await ensureInitialAdmin(db, config.adminUsername, config.adminPassword);
 
 const events = new AccessEvents();
 const collab = createCollab({ db, docs: dbDocStore(db), events });
-const app = createApp({ db, docs: collab.liveDocs, events, config });
+const blobs = new BlobStore(db, path.join(config.dataDir, "uploads"));
+const raster = createRasterPool();
+const app = createApp({ db, docs: collab.liveDocs, events, blobs, raster, config });
 collab.mount(app);
 
 if (config.webDist) {
@@ -40,6 +44,7 @@ const server = serve(
 // 停止時に、編集中の文書を保存してから終わる
 const shutdown = async () => {
   await collab.storeAll();
+  await raster.destroy();
   server.close();
   process.exit(0);
 };

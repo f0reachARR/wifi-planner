@@ -24,7 +24,7 @@ import {
 } from "../repo/projects.js";
 import { findUserById } from "../repo/users.js";
 
-export function projectRoutes({ db, docs, events }: AppDeps) {
+export function projectRoutes({ db, docs, events, blobs }: AppDeps) {
   const app = new Hono<AppEnv>();
 
   /** 閲覧できなければ 404 を返す。権限のないユーザーにプロジェクトの存在を知らせない */
@@ -80,6 +80,7 @@ export function projectRoutes({ db, docs, events }: AppDeps) {
     const state = await docs.getState(projectId);
     if (!state) throw notFound("プロジェクトの文書");
     const id = await createProject(db, docs, { name, ownerId: user.id, state });
+    await blobs.copyLinks(projectId, id);
     return c.json(await getProject(db, id, user.id), 201);
   });
 
