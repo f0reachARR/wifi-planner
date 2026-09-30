@@ -1,17 +1,14 @@
 {
-  "name": "@wifi-planner/domain",
+  "name": "@wifi-planner/api-contract",
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./ydoc": "./src/ydoc.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "yjs": "^13.6.33",
     "zod": "^4.6.5"
   }
 }

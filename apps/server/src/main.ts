@@ -3,14 +3,20 @@ import path from "node:path";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { createApp } from "./app.js";
+import { ensureInitialAdmin } from "./bootstrap.js";
 import { loadConfig } from "./config.js";
 import { openDb } from "./db/client.js";
+import { dbDocStore } from "./docstore.js";
+import { AccessEvents } from "./events.js";
 
 const config = loadConfig();
 mkdirSync(config.dataDir, { recursive: true });
 const db = await openDb(`file:${path.join(config.dataDir, "app.db")}`);
+await ensureInitialAdmin(db, config.adminUsername, config.adminPassword);
 
-const app = createApp({ db });
+const events = new AccessEvents();
+const docs = dbDocStore(db);
+const app = createApp({ db, docs, events, config });
 
 if (config.webDist) {
   const root = config.webDist;
