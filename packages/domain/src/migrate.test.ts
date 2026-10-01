@@ -32,8 +32,50 @@ describe("文書のマイグレーション", () => {
       photoPins: {},
     };
     const migrated = migrateDoc({ ...current, meta: { schemaVersion: 1 }, floors: { f: floor } });
-    expect(migrated.meta.schemaVersion).toBe(2);
+    expect(migrated.meta.schemaVersion).toBe(3);
     expect(migrated.floors.f!.holes).toEqual({});
+  });
+
+  it("版 2 の文書に床スラブのプリセットを足し、各フロアの床スラブとし、全フロアを計算の対象にする", () => {
+    const current = createEmptyProjectDoc();
+    const { slab: _, ...materials } = current.materials;
+    const { crossFloorRange: __, ...settings } = current.settings;
+    const floor = {
+      name: "1F",
+      order: 0,
+      elevationM: 0,
+      heightM: 3,
+      walls: {},
+      aps: {},
+      photoPins: {},
+      holes: {},
+    };
+    const migrated = migrateDoc({
+      ...current,
+      meta: { schemaVersion: 2 },
+      settings,
+      materials,
+      floors: { f: floor },
+    });
+    expect(migrated.meta.schemaVersion).toBe(3);
+    expect(migrated.materials.slab?.presetKey).toBe("slab");
+    expect(migrated.floors.f!.slabMaterialId).toBe("slab");
+    expect(migrated.settings.crossFloorRange).toBeNull();
+  });
+
+  it("床スラブのプリセットが既にあれば足さずにそれを使う", () => {
+    const current = createEmptyProjectDoc();
+    const { slab, ...rest } = current.materials;
+    const migrated = migrateDoc({
+      ...current,
+      meta: { schemaVersion: 2 },
+      materials: { ...rest, mySlab: slab! },
+      floors: {
+        f: { name: "1F", order: 0, elevationM: 0, heightM: 3, walls: {}, aps: {}, photoPins: {} },
+      },
+    });
+    expect(migrated.materials.slab).toBeUndefined();
+    expect(migrated.floors.f!.slabMaterialId).toBe("mySlab");
   });
 
   it("新しすぎる版と、変換の方法がない版は読まない", () => {

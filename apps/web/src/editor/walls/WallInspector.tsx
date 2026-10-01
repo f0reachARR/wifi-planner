@@ -99,7 +99,7 @@ export function WallInspector(props: {
                 id = mergeWallsById(ydoc, floorId, selected[0]!.id, selected[1]!.id, tolerance);
               });
               if (id) props.setSelection([id]);
-              else notifyError(new Error("端点を共有し、材質が同じ 2 本だけを結合できます"));
+              else notifyError(new Error("端点を共有し、材質と高さが同じ 2 本だけを結合できます"));
             }}
           >
             結合

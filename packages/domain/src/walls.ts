@@ -97,12 +97,13 @@ export function reverseWall(wall: Wall): Wall {
 }
 
 /**
- * 端点を共有し、材質が同じ 2 本の壁を 1 本にする（FR-4.4）。
+ * 端点を共有し、材質と高さの範囲が同じ 2 本の壁を 1 本にする（FR-4.4）。
  * 向きが合わなければ反転してからつなぎ、後ろの壁の開口部は前の壁の長さだけずらす。
  * 結合できないときは undefined を返す。
  */
 export function mergeWalls(a: Wall, b: Wall, tolerance = 1e-6): Wall | undefined {
-  if (a.materialId !== b.materialId) return undefined;
+  if (a.materialId !== b.materialId || a.bottomM !== b.bottomM || a.topM !== b.topM)
+    return undefined;
   const near = (p: Vec2, q: Vec2) => distance(p, q) <= tolerance;
   const aStart = a.points[0]!;
   const aEnd = a.points.at(-1)!;
@@ -156,4 +157,42 @@ export function canPlaceOpening(
   const total = polylineLength(wall.points);
   if (start < 0 || end > total + 1e-9 || start >= end) return false;
   return wall.openings.every((o) => o.id === ignoreId || o.end <= start || o.start >= end);
+}
+
+/** 床からの高さの範囲。下端を含み上端を含まない（設計書 6.1.1 節） */
+export type HeightRange = { bottom: number; top: number };
+
+/** 壁の高さの範囲（FR-4.10）。指定が無ければ床から天井まで */
+export function wallHeightRange(
+  wall: Pick<Wall, "bottomM" | "topM">,
+  floorHeightM: number,
+): HeightRange {
+  return { bottom: wall.bottomM ?? 0, top: wall.topM ?? floorHeightM };
+}
+
+/** 開口部の高さの範囲。指定が無ければ壁と同じで、壁の範囲からはみ出す部分は切り取る */
+export function openingHeightRange(
+  opening: Pick<Opening, "bottomM" | "topM">,
+  wall: HeightRange,
+): HeightRange {
+  return {
+    bottom: Math.max(wall.bottom, opening.bottomM ?? wall.bottom),
+    top: Math.min(wall.top, opening.topM ?? wall.top),
+  };
+}
+
+/**
+ * 開口部のある区間を、高さの範囲ごとに開口部と壁に分ける（設計書 4.1 節）。
+ * 開口部の下と上に残る壁の部分は壁の材質になる。空の範囲は返さない
+ */
+export function splitByOpeningHeight(
+  wall: HeightRange,
+  opening: HeightRange,
+): { range: HeightRange; isOpening: boolean }[] {
+  const parts = [
+    { range: { bottom: wall.bottom, top: Math.min(opening.bottom, wall.top) }, isOpening: false },
+    { range: opening, isOpening: true },
+    { range: { bottom: Math.max(opening.top, wall.bottom), top: wall.top }, isOpening: false },
+  ];
+  return parts.filter((p) => p.range.top > p.range.bottom);
 }

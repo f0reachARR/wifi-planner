@@ -6,7 +6,7 @@ import { Vec2 } from "./geometry.js";
 // プロジェクトの Yjs 文書の形。文書では各要素を ID をキーにした Y.Map に入れるので、
 // ここでも要素そのものには ID を持たせず、Record のキーで表す。
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 const Id = z.string().min(1);
 const Color = z.string().regex(/^#[0-9a-fA-F]{6}$/);
@@ -39,6 +39,9 @@ export type Opening = z.infer<typeof Opening>;
 export const Wall = z.object({
   points: z.array(Vec2).min(2),
   materialId: Id,
+  /** 床からの高さの範囲（FR-4.10、設計書 4.1 節）。無ければ 0 m と階高。版 3 で足した */
+  bottomM: z.number().min(0).optional(),
+  topM: z.number().positive().optional(),
   openings: z.array(Opening),
 });
 export type Wall = z.infer<typeof Wall>;
@@ -177,6 +180,8 @@ export const Floor = z.object({
    * 足す前のフロアが勝つことがあるので、無ければ空とみなす
    */
   holes: z.record(Id, Hole).default({}),
+  /** 床スラブの材質（FR-3.1、FR-7.6）。版 3 で足した。無いときの扱いは slabMaterialOf を参照 */
+  slabMaterialId: Id.optional(),
 });
 export type Floor = z.infer<typeof Floor>;
 
@@ -193,6 +198,11 @@ export const ProjectSettings = z.object({
     goodThresholdDbm: z.number(),
     hideBelow: z.boolean(),
   }),
+  /**
+   * 他のフロアの AP を計算に含める範囲（FR-7.8）。null は全フロア、0 は同じフロアだけ、n は上下 n フロアまで。
+   * 版 3 で足した。足す前の文書と統合したときに消えることがあるので、無ければ全フロアとみなす
+   */
+  crossFloorRange: z.number().int().min(0).nullable().default(null),
 });
 export type ProjectSettings = z.infer<typeof ProjectSettings>;
 
