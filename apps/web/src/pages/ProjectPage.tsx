@@ -8,7 +8,13 @@ import { ProjectSessionProvider, useSession, useSessionState } from "../collab/r
 import { colorForUser } from "../collab/session";
 import { EditorHeader, type EditorView } from "../editor/EditorHeader";
 import { FloorPanel, sortedFloors } from "../editor/FloorPanel";
-import { type ApPlacementDefaults, FloorView, INITIAL_AP_PLACEMENT } from "../editor/FloorView";
+import {
+  type ApPlacementDefaults,
+  FloorView,
+  type FloorViewPrefs,
+  INITIAL_AP_PLACEMENT,
+  INITIAL_FLOOR_VIEW_PREFS,
+} from "../editor/FloorView";
 import { View3D } from "../editor/view3d/View3D";
 
 export function ProjectPage() {
@@ -58,6 +64,7 @@ function Editor({ project }: { project: Project }) {
   const [floorId, setFloorId] = useState<string>();
   const [view, setView] = useState<EditorView>("2d");
   const [apPlacement, setApPlacement] = useState<ApPlacementDefaults>(INITIAL_AP_PLACEMENT);
+  const [floorViewPrefs, setFloorViewPrefs] = useState<FloorViewPrefs>(INITIAL_FLOOR_VIEW_PREFS);
   const floors = sortedFloors(doc?.floors ?? {});
   const floor = floors.find((f) => f.id === floorId);
 
@@ -96,6 +103,8 @@ function Editor({ project }: { project: Project }) {
               floor={floor}
               apPlacement={apPlacement}
               onApPlacementChange={(patch) => setApPlacement((p) => ({ ...p, ...patch }))}
+              prefs={floorViewPrefs}
+              onPrefsChange={setFloorViewPrefs}
             />
           ) : (
             <Center h="100%">

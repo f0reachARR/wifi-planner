@@ -88,6 +88,13 @@ const OPENING_MATERIAL: Record<OpeningKind, string> = {
   other: "drywall",
 };
 
+export type ShownKinds = { walls: boolean; aps: boolean; holes: boolean; areas: boolean };
+const ALL_SHOWN: ShownKinds = { walls: true, aps: true, holes: true, areas: true };
+const NO_WALLS: WallEntry[] = [];
+const NO_APS: ApEntry[] = [];
+const NO_HOLES: HoleEntry[] = [];
+const NO_AREAS: AreaEntry[] = [];
+
 /**
  * 2D ビューの編集の道具（FR-4.4〜4.6、FR-4.8、FR-6.1、FR-11.1）。壁と AP と吹き抜けとエリアを同じ選択で扱う。
  * 選択はユーザーごとのローカル状態とし、awareness でほかのユーザーに見せる。ID は UUID なので種類が違っても重ならない。
@@ -107,8 +114,16 @@ export function useWallTools(opts: {
   guides?: SnapGuides;
   /** AP の道具でクリックしたとき。置いた AP の ID を返す */
   onPlaceAp?: (p: Vec2) => string | undefined;
+  /** 表示中の種別（FR-8.9）。隠した種別は選択、編集、スナップの対象にしない。既定はすべて表示 */
+  shown?: ShownKinds;
 }) {
-  const { floorId, walls, aps, holes, areas, tool } = opts;
+  const { floorId, tool } = opts;
+  // 隠した種別は空として扱う。エリアの名前の連番だけは、隠していてもすべてのエリアから決める
+  const shown = opts.shown ?? ALL_SHOWN;
+  const walls = shown.walls ? opts.walls : NO_WALLS;
+  const aps = shown.aps ? opts.aps : NO_APS;
+  const holes = shown.holes ? opts.holes : NO_HOLES;
+  const areas = shown.areas ? opts.areas : NO_AREAS;
   const session = useSession();
   const readOnly = session.readOnly;
   const [selection, setSelection] = useState<string[]>([]);
@@ -128,7 +143,7 @@ export function useWallTools(opts: {
 
   const selectionSet = useMemo(() => new Set(selection), [selection]);
 
-  // 消えた要素を選択から外す（ほかのユーザーが消した場合など）
+  // 消えた要素と隠した種別の要素を選択から外す（ほかのユーザーが消した場合など）
   useEffect(() => {
     const ids = new Set([
       ...walls.map((w) => w.id),
@@ -199,7 +214,7 @@ export function useWallTools(opts: {
             tool === "hole"
               ? addHole(ydoc, floorId, { points: pts })
               : addArea(ydoc, floorId, {
-                  name: nextAreaName(areas),
+                  name: nextAreaName(opts.areas),
                   points: pts,
                   headcount: 0,
                 });

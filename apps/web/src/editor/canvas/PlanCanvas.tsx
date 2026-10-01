@@ -143,6 +143,8 @@ export function PlanCanvas(props: {
   shareCursor?: boolean;
   /** カーソルの図面座標。キャンバスの外に出たら undefined */
   onPointerMove?: (p: Vec2 | undefined) => void;
+  /** 図面の画像を描くか（FR-8.9）。既定は true */
+  showPlan?: boolean;
   /** 図面座標で描く重ね描き。引数は画面の 1 ピクセルが図面座標でいくつか */
   children?: (px: number) => ReactNode;
 }) {
@@ -349,7 +351,7 @@ export function PlanCanvas(props: {
           <Layer>
             <Group x={view.x} y={view.y} scaleX={view.scale} scaleY={view.scale}>
               <Group ref={planGroup} rotation={rotation}>
-                {plan && image && extent && (
+                {plan && image && extent && props.showPlan !== false && (
                   <Group
                     clipX={extent.x}
                     clipY={extent.y}

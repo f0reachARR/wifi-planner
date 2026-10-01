@@ -3,7 +3,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { makeSyntheticPlanPdf } from "@wifi-planner/wall-extraction/fixtures";
 import { ADMIN } from "../playwright.config";
-import { addFloorWithPlan, apiOf, newUserPage, selectAll } from "./helpers";
+import { addFloorWithPlan, apiOf, newUserPage, selectAll, sidebarTab } from "./helpers";
 
 test("壁の自動抽出、候補の個別と一括の採用", async ({ browser }, testInfo) => {
   mkdirSync(testInfo.outputDir, { recursive: true });
@@ -15,6 +15,7 @@ test("壁の自動抽出、候補の個別と一括の採用", async ({ browser 
   await page.goto(`/projects/${project.id}`);
   await addFloorWithPlan(page, pdfPath);
 
+  await sidebarTab(page, "壁");
   await page.getByRole("button", { name: "図面から壁を自動抽出" }).click();
   // 100 dpi では内壁が 5 px ほどなので、消す線の太さを下げる
   await page.getByLabel("最小の壁の厚さ（px）").fill("3");
