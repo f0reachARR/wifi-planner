@@ -1,9 +1,54 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { makeSyntheticPlanPdf } from "@wifi-planner/wall-extraction/fixtures";
+import sharp from "sharp";
 import { ADMIN } from "../playwright.config";
 import { addFloorWithPlan, apiOf, click, newUserPage, tool } from "./helpers";
+
+/** AP の球の色（View3D の ApObject）、断面の枠の色（SectionHandle）、つまみの y 軸と z 軸の色（three.js の TransformControls） */
+const AP_COLOR = [0xe8, 0x59, 0x0c] as const;
+const FRAME_COLOR = [0xae, 0x3e, 0xc9] as const;
+const RING_COLOR = [0x00, 0xff, 0x00] as const;
+const ARROW_COLOR = [0x00, 0x00, 0xff] as const;
+
+/** 3D ビューのキャンバスで、指定した色の画素の重心（lowest なら最も下の画素）をページの座標で返す */
+async function findColor(
+  page: Page,
+  rgb: readonly [number, number, number],
+  at: "center" | "lowest" = "center",
+) {
+  const canvas = page.locator("canvas").first();
+  const box = (await canvas.boundingBox())!;
+  const { data, info } = await sharp(await canvas.screenshot())
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  let sx = 0;
+  let sy = 0;
+  let n = 0;
+  let lowest = { x: 0, y: -1 };
+  for (let i = 0; i < info.width * info.height; i++) {
+    const d = Math.max(...rgb.map((c, k) => Math.abs(data[i * 3 + k]! - c)));
+    if (d > 12) continue;
+    const x = i % info.width;
+    const y = Math.floor(i / info.width);
+    sx += x;
+    sy += y;
+    n++;
+    if (y > lowest.y) lowest = { x, y };
+  }
+  expect(n, "その色の画素がない").toBeGreaterThan(10);
+  if (at === "lowest")
+    return {
+      x: box.x + (lowest.x * box.width) / info.width,
+      y: box.y + (lowest.y * box.height) / info.height,
+    };
+  return {
+    x: box.x + ((sx / n) * box.width) / info.width,
+    y: box.y + ((sy / n) * box.height) / info.height,
+  };
+}
 
 test("フロアの位置合わせ、重ね表示、疑似 3D ビュー", async ({ browser }, testInfo) => {
   mkdirSync(testInfo.outputDir, { recursive: true });
@@ -106,6 +151,50 @@ test("フロアの位置合わせ、重ね表示、疑似 3D ビュー", async (
   await expect(page.getByLabel("表示中のフロア")).toHaveText(
     "表示中のフロア：1F（床 0 m）、2F（床 3 m）",
   );
+  // 3D ビューで AP を選び、つまみで動かす（FR-3.6）。図面、壁、ヒートマップを消して、AP の色の画素を探す
+  for (const name of ["図面", "壁", "ヒートマップ"])
+    await page.getByRole("switch", { name, exact: true }).uncheck({ force: true });
+  const ap = await findColor(page, AP_COLOR);
+  await page.mouse.click(ap.x, ap.y);
+  await expect(page.getByLabel("3D ビューで選択中")).toHaveText(/^AP「.+」$/);
+  // つまみの中心をつかむと、画面に平行な面の上で動かせる
+  await page.mouse.move(ap.x, ap.y);
+  await page.mouse.down();
+  await page.mouse.move(ap.x + 80, ap.y + 20, { steps: 10 });
+  await page.mouse.up();
+  if (process.env.SCREENSHOT_DIR)
+    await page.screenshot({ path: `${process.env.SCREENSHOT_DIR}/view3d-ap-move.png` });
+  // 選択を解除してつまみを消すと、AP は動かした先にある
+  await page.keyboard.press("Escape");
+  await expect(page.getByLabel("3D ビューで選択中")).toHaveCount(0);
+  const moved = await findColor(page, AP_COLOR);
+  expect(Math.hypot(moved.x - ap.x, moved.y - ap.y)).toBeGreaterThan(40);
+  // 動かした操作は 1 回の元に戻すで戻る
+  await page.getByRole("button", { name: "元に戻す" }).click();
+  await expect
+    .poll(async () => {
+      const back = await findColor(page, AP_COLOR);
+      return Math.hypot(back.x - ap.x, back.y - ap.y);
+    })
+    .toBeLessThan(2);
+  // 方位角とチルトのつまみはそれぞれ 1 本の軸のまわりの輪だけ。輪の手前の端をつかんで横に動かすと値が変わる（2D の画面で確かめる）
+  await page.mouse.click(ap.x, ap.y);
+  for (const kind of ["方位角", "チルト"]) {
+    await page.getByRole("radiogroup", { name: "つまみの種類" }).getByText(kind).click();
+    const ring = await findColor(page, RING_COLOR, "lowest");
+    if (process.env.SCREENSHOT_DIR)
+      await page.screenshot({ path: `${process.env.SCREENSHOT_DIR}/view3d-ap-${kind}.png` });
+    await page.mouse.move(ring.x, ring.y - 1);
+    await page.mouse.down();
+    await page.mouse.move(ring.x + 40, ring.y - 1, { steps: 10 });
+    await page.mouse.up();
+  }
+  if (process.env.SCREENSHOT_DIR)
+    await page.screenshot({ path: `${process.env.SCREENSHOT_DIR}/view3d-ap-rotated.png` });
+  await page.keyboard.press("Escape");
+  for (const name of ["図面", "壁", "ヒートマップ"])
+    await page.getByRole("switch", { name, exact: true }).check({ force: true });
+
   // 縦の断面（FR-3.9）。1F の AP の電波を、2F まで断面の上で計算する
   await page.getByRole("switch", { name: "縦の断面" }).check();
   await expect(page.getByLabel("断面の状態")).toHaveText(/^断面：\d+×\d+ 点、1 本のラジオ$/);
@@ -121,7 +210,42 @@ test("フロアの位置合わせ、重ね表示、疑似 3D ビュー", async (
     await page.screenshot({ path: `${process.env.SCREENSHOT_DIR}/view3d.png` });
   }
 
+  // 断面の枠の中をクリックして選び、つまみで断面に垂直な向きに動かすと、位置のスライダーも動く
+  await page.getByRole("switch", { name: "ヒートマップ", exact: true }).uncheck({ force: true });
+  const frame = await findColor(page, FRAME_COLOR);
+  // 枠の中心には AP があるので、少し上をクリックする
+  await page.mouse.click(frame.x, frame.y - 40);
+  await expect(page.getByLabel("3D ビューで選択中")).toHaveText("断面");
+  // 断面のつまみは移動と回転だけ。AP でチルトを選んでいたときは回転になる
+  await expect(
+    page.getByRole("radiogroup", { name: "つまみの種類" }).getByRole("radio", { name: "回転" }),
+  ).toBeChecked();
+  await page.getByRole("radiogroup", { name: "つまみの種類" }).getByText("移動").click();
+  const arrow = await findColor(page, ARROW_COLOR);
+  await page.mouse.move(arrow.x, arrow.y);
+  await page.mouse.down();
+  await page.mouse.move(arrow.x + 60, arrow.y + 30, { steps: 10 });
+  await page.mouse.up();
+  await expect(page.getByRole("slider", { name: "断面の位置" })).not.toHaveAttribute(
+    "aria-valuenow",
+    "0",
+  );
+  await expect(page.getByRole("slider", { name: "断面の向き" })).toHaveAttribute(
+    "aria-valuenow",
+    "90",
+  );
+  if (process.env.SCREENSHOT_DIR) {
+    await page.getByRole("radiogroup", { name: "つまみの種類" }).getByText("回転").click();
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: `${process.env.SCREENSHOT_DIR}/view3d-section-rotate.png` });
+  }
+
   // 2D に戻すと編集の画面に戻る
   await page.getByText("2D（編集）").click();
   await expect(page.getByRole("button", { name: "図面の調整" })).toBeVisible();
+  // 3D ビューで回した AP の方位角とチルトが、2D の画面にも出る
+  await page.getByText("1F", { exact: true }).click();
+  await click(page, 0.5, 0.5);
+  await expect(page.getByLabel("方位角")).not.toHaveValue("0°");
+  await expect(page.getByLabel("チルト")).not.toHaveValue("0°");
 });

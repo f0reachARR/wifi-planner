@@ -1,6 +1,19 @@
 import { floorPlacements } from "@wifi-planner/domain";
 import { describe, expect, it } from "vitest";
-import { clipToRect, heatmapQuad, planQuad, sectionQuad, toThree, wallGeometry } from "./scene";
+import {
+  apBasis,
+  apOrientationFrom,
+  clipToRect,
+  heatmapQuad,
+  planQuad,
+  planToWorld,
+  sectionOrigin,
+  sectionParamsFrom,
+  sectionQuad,
+  threeToPlan,
+  toThree,
+  wallGeometry,
+} from "./scene";
 
 const plan = {
   sourceSha256: "s",
@@ -170,5 +183,93 @@ describe("疑似 3D ビューの形", () => {
     const ys = new Set<number>();
     for (let i = 1; i < g.positions.length; i += 3) ys.add(g.positions[i]!);
     expect([...ys].sort((a, b) => a - b)).toEqual([6, 11]);
+  });
+});
+
+describe("3D ビューでの AP と断面の操作", () => {
+  const base = {
+    order: 0,
+    elevationM: 0,
+    heightM: 3,
+    plan: { ...plan, rotationDeg: 30 },
+    scale,
+    walls: {},
+    aps: {},
+    photoPins: {},
+    holes: {},
+  };
+  // 2F は基準点で位置を合わせ、基準フロアに対して回っている
+  const placements = floorPlacements({
+    a: { ...base, alignment: { a: { x: 0, y: 0 }, b: { x: 10, y: 0 } } },
+    b: { ...base, order: 1, alignment: { a: { x: 5, y: 5 }, b: { x: 5, y: 15 } } },
+  });
+
+  it("three.js の座標から図面座標に戻せる", () => {
+    for (const id of ["a", "b"]) {
+      const p = placements[id]!;
+      const back = threeToPlan(p, toThree(planToWorld(p, { x: 12, y: 34 }), 2));
+      expect(back.x).toBeCloseTo(12);
+      expect(back.y).toBeCloseTo(34);
+    }
+  });
+
+  it("AP の向きを three.js の基底にして、方位角とチルトに戻せる", () => {
+    const identity = floorPlacements({ f: { ...base, plan } }).f!;
+    const close = (v: number[], w: number[]) => {
+      for (const [i, c] of v.entries()) expect(c).toBeCloseTo(w[i]!);
+    };
+    // 天井設置でチルト 0° なら主ビームは真下、方位角 90° はフロア座標の +y、つまり three.js の -z に局所 z を向ける
+    const [cx, , cz] = apBasis(identity, "ceiling", 90, 0);
+    close(cx, [0, -1, 0]);
+    close(cz, [0, 0, -1]);
+    // 壁設置で方位角 0°、チルト 30° なら、主ビームは +x から 30° 下を向く
+    const [wx] = apBasis(identity, "wall", 0, 30);
+    close(wx, [Math.cos(Math.PI / 6), -Math.sin(Math.PI / 6), 0]);
+    for (const p of [identity, placements.b!])
+      for (const mount of ["ceiling", "wall"] as const)
+        for (const [az, tilt] of [
+          [0, 0],
+          [45, 20],
+          [200, -35],
+          [359, 89],
+        ] as const) {
+          const [x, y] = apBasis(p, mount, az, tilt);
+          const back = apOrientationFrom(p, mount, x, y);
+          expect(back.azimuthDeg).toBeCloseTo(az);
+          expect(back.tiltDeg).toBeCloseTo(tilt);
+        }
+  });
+
+  it("断面が通る点と向きから、断面の向きと位置を求める", () => {
+    const bounds = { minX: 0, minY: 0, maxX: 20, maxY: 10, bottom: 0, top: 6 };
+    for (const params of [
+      { angleDeg: 0, offsetM: 2 },
+      { angleDeg: 90, offsetM: -3 },
+      { angleDeg: 30, offsetM: 1.5 },
+    ]) {
+      const o = sectionOrigin(bounds, params);
+      const back = sectionParamsFrom(bounds, o, params.angleDeg);
+      expect(back.angleDeg).toBeCloseTo(params.angleDeg);
+      expect(back.offsetM).toBeCloseTo(params.offsetM);
+      // 直線の上の別の点でも同じ
+      const a = (params.angleDeg * Math.PI) / 180;
+      const far = sectionParamsFrom(
+        bounds,
+        { x: o.x + 4 * Math.cos(a), y: o.y + 4 * Math.sin(a) },
+        params.angleDeg,
+      );
+      expect(far.offsetM).toBeCloseTo(params.offsetM);
+    }
+    // 向きを 180° 回すと同じ直線になり、向きは 0°〜180° に揃えてずれの符号は変わらない
+    const o = sectionOrigin(bounds, { angleDeg: 30, offsetM: 1.5 });
+    const flipped = sectionParamsFrom(bounds, o, 210);
+    expect(flipped.angleDeg).toBeCloseTo(30);
+    expect(flipped.offsetM).toBeCloseTo(1.5);
+    // 180° のすぐ手前の向きを 1° 刻みに丸めてから求めると、0° の直線として同じ側のずれになる
+    const nearFlip = sectionParamsFrom(bounds, { x: 3, y: 7 }, Math.round(179.7));
+    expect(nearFlip.angleDeg).toBe(0);
+    expect(nearFlip.offsetM).toBeCloseTo(2);
+    // 0°、x 方向の直線の上で y が中心より 2 m 大きい点は、ずれ 2 m
+    expect(sectionParamsFrom(bounds, { x: 3, y: 7 }, 0).offsetM).toBeCloseTo(2);
   });
 });
