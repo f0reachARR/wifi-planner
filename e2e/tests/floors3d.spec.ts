@@ -71,6 +71,17 @@ test("フロアの位置合わせ、重ね表示、疑似 3D ビュー", async (
   await expect(page.getByLabel("表示中のフロア")).toHaveText(
     "表示中のフロア：1F（床 0 m）、2F（床 3 m）",
   );
+  // 図面と壁の不透明度をそれぞれ変えられる
+  await expect(page.getByRole("slider", { name: "図面の不透明度" })).toHaveAttribute(
+    "aria-valuenow",
+    "0.5",
+  );
+  await page.getByRole("slider", { name: "壁の不透明度" }).focus();
+  await page.keyboard.press("End");
+  await expect(page.getByRole("slider", { name: "壁の不透明度" })).toHaveAttribute(
+    "aria-valuenow",
+    "1",
+  );
   // 高さだけを引き伸ばしても、床の高さの表示は実際の値のまま（FR-3.7）
   await page.getByRole("radiogroup", { name: "高さの倍率" }).getByText("×3").click();
   await expect(page.getByText("高さだけを 3 倍にしています", { exact: false })).toBeVisible();

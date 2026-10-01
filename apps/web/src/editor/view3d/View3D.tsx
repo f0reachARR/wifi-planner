@@ -1,4 +1,4 @@
-import { Box, Group, Paper, SegmentedControl, Stack, Switch, Text } from "@mantine/core";
+import { Box, Group, Paper, SegmentedControl, Slider, Stack, Switch, Text } from "@mantine/core";
 import { OrbitControls } from "@react-three/drei";
 import { Canvas, useThree } from "@react-three/fiber";
 import {
@@ -20,6 +20,8 @@ import { sortedFloors } from "../FloorPanel";
 import { heatmapQuad, planQuad, planToWorld, toThree, wallGeometry } from "./scene";
 
 type Layers = { plan: boolean; walls: boolean; aps: boolean; heatmap: boolean };
+/** 図面と壁の不透明度。上の階で下の階が隠れないよう、既定では半透明にする */
+type Opacities = { plan: number; walls: number };
 
 /** 高さ方向だけを引き伸ばす倍率の選択肢。フロアの間が狭く見えるときに使う */
 const HEIGHT_SCALES = [1, 2, 3, 5] as const;
@@ -35,6 +37,7 @@ export function View3D() {
     heatmap: true,
   });
   const [heightScale, setHeightScale] = useState<number>(1);
+  const [opacity, setOpacity] = useState<Opacities>({ plan: 0.5, walls: 0.55 });
   const floors = sortedFloors(doc?.floors ?? {});
   const placements = useMemo(() => floorPlacements(doc?.floors ?? {}), [doc?.floors]);
   const shown = floors.filter((f) => placements[f.id]);
@@ -101,6 +104,7 @@ export function View3D() {
               band={band}
               layers={layers}
               heightScale={heightScale}
+              opacity={opacity}
             />
           ))}
         </Canvas>
@@ -139,6 +143,33 @@ export function View3D() {
               />
             ))}
           </Group>
+          <Text size="xs" c="dimmed">
+            不透明度
+          </Text>
+          {(
+            [
+              ["plan", "図面"],
+              ["walls", "壁"],
+            ] as const
+          ).map(([key, label]) => (
+            <Group key={key} gap={6} wrap="nowrap">
+              <Text size="xs" w={28}>
+                {label}
+              </Text>
+              <Slider
+                size="xs"
+                style={{ flex: 1 }}
+                min={0.05}
+                max={1}
+                step={0.05}
+                value={opacity[key]}
+                disabled={!layers[key]}
+                onChange={(v) => setOpacity((o) => ({ ...o, [key]: v }))}
+                label={(v) => `不透明度 ${Math.round(v * 100)}%`}
+                thumbLabel={`${label}の不透明度`}
+              />
+            </Group>
+          ))}
           <Group gap={6}>
             <Text size="xs">高さ</Text>
             <SegmentedControl
@@ -181,6 +212,7 @@ function FloorMeshes(props: {
   layers: Layers;
   labelSize: number;
   heightScale: number;
+  opacity: Opacities;
 }) {
   const { floor, placement, layers, heightScale } = props;
   /** 表示上の高さ。見やすさのために高さ方向だけを引き伸ばす */
@@ -257,12 +289,12 @@ function FloorMeshes(props: {
     <group>
       {layers.plan && texture && (
         <mesh geometry={planGeom}>
-          {/* 上の階の図面で下の階が隠れないよう、半透明にする */}
+          {/* 上の階の図面で下の階が隠れないよう、既定では半透明にする */}
           <meshBasicMaterial
             map={texture}
             side={THREE.DoubleSide}
             transparent
-            opacity={0.5}
+            opacity={props.opacity.plan}
             depthWrite={false}
           />
         </mesh>
@@ -284,7 +316,7 @@ function FloorMeshes(props: {
             vertexColors
             side={THREE.DoubleSide}
             transparent
-            opacity={0.55}
+            opacity={props.opacity.walls}
             depthWrite={false}
           />
         </mesh>
