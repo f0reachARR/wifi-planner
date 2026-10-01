@@ -2,6 +2,7 @@ import { Alert, Box, Button, Group, Modal, Select, Stack, Switch, Text } from "@
 import {
   type Floor,
   floorPlacements,
+  planOffsetConflict,
   planOffsetFromPoints,
   planTransform,
   type Vec2,
@@ -64,6 +65,7 @@ function AlignBody({ floors, floorId, onClose }: Parameters<typeof AlignFloorsMo
       ? planOffsetFromPoints({ ...own, ...ownPts }, { ...target, ...targetPts })
       : undefined;
   const mismatch = result && Math.abs(result.distanceRatio - 1);
+  const conflict = own && target ? planOffsetConflict(floors, own.id, target.id) : undefined;
 
   if (candidates.length < 2) {
     return (
@@ -75,7 +77,7 @@ function AlignBody({ floors, floorId, onClose }: Parameters<typeof AlignFloorsMo
 
   const options = candidates.map((f) => ({ value: f.id, label: f.name }));
   const submit = () => {
-    if (!own || !target || !result) return;
+    if (!own || !target || !result || conflict) return;
     session.mutate((ydoc) => {
       updateFloor(ydoc, own.id, {
         planOffset: {
@@ -150,7 +152,16 @@ function AlignBody({ floors, floorId, onClose }: Parameters<typeof AlignFloorsMo
           <PointPicker floor={target} points={targetPts} onPick={setTargetPts} snap={snap} />
         )}
       </Group>
-      {target && !placements[target.id]?.aligned && (
+      {own && target && conflict && (
+        <Alert color="red" p={6}>
+          <Text size="xs">
+            {conflict === "cycle"
+              ? `${target.name} は ${own.name} に合わせたフロアを通して、すでに ${own.name} とつながっています。合わせると位置合わせが輪になるので、先にどちらかの位置合わせを解除してください。`
+              : `${target.name} は ${own.name} を通して基準フロアにつながっています。合わせると両方とも基準フロアから外れるので、${target.name} を ${own.name} に合わせ直してください。`}
+          </Text>
+        </Alert>
+      )}
+      {target && !conflict && !placements[target.id]?.aligned && (
         <Alert color="orange" p={6}>
           <Text size="xs">
             {target.name}{" "}
@@ -178,7 +189,7 @@ function AlignBody({ floors, floorId, onClose }: Parameters<typeof AlignFloorsMo
         <Button variant="default" onClick={onClose}>
           キャンセル
         </Button>
-        <Button disabled={!result} onClick={submit}>
+        <Button disabled={!result || !!conflict} onClick={submit}>
           合わせる
         </Button>
       </Group>

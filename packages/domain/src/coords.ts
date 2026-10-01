@@ -191,6 +191,69 @@ export function floorPlacements(
   return out;
 }
 
+/**
+ * own を target に合わせたとき（own の結果を置き換え、target が own に合わせてあればそれを消す）に起きる問題。
+ * - cycle：own と target が別の経路で既につながっていて、辺が輪になる。輪の中の 1 つの結果が使われなくなる
+ * - detach：target が own を通してだけ基準フロアにつながっていて、合わせると両方とも基準フロアから外れる
+ * どちらも無ければ undefined。もともと基準フロアにつながっていない target に合わせるのは問題としない
+ */
+export function planOffsetConflict(
+  floors: Record<string, Pick<Floor, "order" | "plan" | "scale" | "planOffset">>,
+  ownId: string,
+  targetId: string,
+): "cycle" | "detach" | undefined {
+  const own = floors[ownId];
+  const target = floors[targetId];
+  if (!own || !target) return undefined;
+  const rest = {
+    ...floors,
+    [ownId]: { ...own, planOffset: undefined },
+    [targetId]:
+      target.planOffset?.floorId === ownId ? { ...target, planOffset: undefined } : target,
+  };
+  const group = offsetComponents(rest);
+  if (!group.has(ownId) || !group.has(targetId)) return undefined;
+  if (group.get(ownId) === group.get(targetId)) return "cycle";
+  const base = group.get(referenceFloorId(floors) ?? "");
+  const wasAligned = floorPlacements(floors)[targetId]?.aligned ?? false;
+  if (wasAligned && group.get(ownId) !== base && group.get(targetId) !== base) return "detach";
+  return undefined;
+}
+
+/** 基準フロアの id。order が最小で、スケールを校正済みのフロア */
+function referenceFloorId(
+  floors: Record<string, Pick<Floor, "order" | "plan" | "scale">>,
+): string | undefined {
+  let best: { id: string; order: number } | undefined;
+  for (const [id, f] of Object.entries(floors)) {
+    if (!planTransform(f.plan, f.scale)) continue;
+    if (!best || f.order < best.order) best = { id, order: f.order };
+  }
+  return best?.id;
+}
+
+/** 位置合わせの結果を辺として、校正済みのフロアをつながりごとに分ける。値は同じつながりで同じになる代表の id */
+function offsetComponents(
+  floors: Record<string, Pick<Floor, "plan" | "scale" | "planOffset">>,
+): Map<string, string> {
+  const ids = Object.keys(floors).filter((id) =>
+    planTransform(floors[id]!.plan, floors[id]!.scale),
+  );
+  const parent = new Map(ids.map((id) => [id, id]));
+  const find = (id: string): string => {
+    const p = parent.get(id)!;
+    if (p === id) return id;
+    const root = find(p);
+    parent.set(id, root);
+    return root;
+  };
+  for (const id of ids) {
+    const to = floors[id]!.planOffset?.floorId;
+    if (to && to !== id && parent.has(to)) parent.set(find(id), find(to));
+  }
+  return new Map(ids.map((id) => [id, find(id)]));
+}
+
 /** あるフロアの図面座標を、別のフロアの図面座標に移す関数（重ね表示に使う、FR-3.3） */
 export function planToPlan(from: FloorPlacement, to: FloorPlacement): (p: Vec2) => Vec2 {
   const toInverse = invertRigid(to.toWorld);

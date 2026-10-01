@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   floorPlacements,
+  planOffsetConflict,
   planOffsetFromPoints,
   planOffsetMap,
   planToPlan,
@@ -165,5 +166,37 @@ describe("フロアの置き方", () => {
     expect(placements.f3?.aligned).toBe(false);
     expect(placements.f4).toBeUndefined();
     expect(placements.f5?.aligned).toBe(false);
+  });
+
+  describe("合わせ直したときの問題", () => {
+    const pts = { a: { x: 0, y: 0 }, b: { x: 1, y: 0 } };
+    const floor = (order: number, to?: string) => ({
+      order,
+      plan: plan(0),
+      scale,
+      ...(to ? { planOffset: offsetTo(to, pts, pts) } : {}),
+    });
+    // 1F ← 2F ← 3F ← 4F
+    const chain = { f1: floor(0), f2: floor(1, "f1"), f3: floor(2, "f2"), f4: floor(3, "f3") };
+
+    it("自分を通して基準フロアにつながるフロアに合わせると、両方とも外れる", () => {
+      expect(planOffsetConflict(chain, "f2", "f3")).toBe("detach");
+    });
+
+    it("自分に合わせたフロアの先に合わせると、輪になる", () => {
+      expect(planOffsetConflict(chain, "f2", "f4")).toBe("cycle");
+      // 基準フロアにつながらないフロアどうしでも、輪は作らない
+      const floating = { f1: floor(0), f2: floor(1), f3: floor(2, "f2"), f4: floor(3, "f3") };
+      expect(planOffsetConflict(floating, "f2", "f4")).toBe("cycle");
+    });
+
+    it("基準フロアに合わせ直すのと、基準フロアから子へ向きを入れ替えるのは問題ない", () => {
+      expect(planOffsetConflict(chain, "f3", "f1")).toBeUndefined();
+      expect(planOffsetConflict(chain, "f1", "f2")).toBeUndefined();
+      // もともと基準フロアにつながっていないフロアに合わせるのは、警告だけで止めない
+      expect(
+        planOffsetConflict({ f1: floor(0), f2: floor(1), f3: floor(2) }, "f3", "f2"),
+      ).toBeUndefined();
+    });
   });
 });
