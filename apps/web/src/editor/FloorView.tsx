@@ -53,10 +53,12 @@ import {
   distance,
   floorPlacements,
   metersPerUnit,
+  overlappingWalls,
   planToPlan,
   planTransform,
   ratioOfPdfScale,
   type Vec2,
+  wallHeightRange,
 } from "@wifi-planner/domain";
 import {
   addAp,
@@ -190,6 +192,19 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
   const [editingPropagation, setEditingPropagation] = useState(false);
   const [hoverStore] = useState(createHoverStore);
   const transform = planTransform(floor.plan, floor.scale);
+  // 高さの範囲が重なる壁（FR-4.11）。許容する距離はメートルなので、スケールを校正したフロアだけで調べる
+  // biome-ignore lint/correctness/useExhaustiveDependencies: transform は毎回作り直されるので、元になる図面とスケールで見る
+  const overlaps = useMemo(() => {
+    if (!transform) return [];
+    return overlappingWalls(
+      walls.map((w) => ({
+        key: w.id,
+        points: w.points.map(transform.toFloor),
+        range: wallHeightRange(w, floor.heightM),
+      })),
+    );
+  }, [walls, floor.plan, floor.scale, floor.heightM]);
+  const overlapIds = useMemo(() => new Set(overlaps.flat()), [overlaps]);
   const { result, pending } = useHeatmap(doc, floor.id, band, showHeatmap && !!transform);
   const legend = doc?.settings.legend;
   const okResult = result?.status === "ok" ? result : undefined;
@@ -386,6 +401,7 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                 walls={walls}
                 materials={materials}
                 selection={wallTools.selectionSet}
+                warned={overlapIds}
                 peers={floorPeers}
                 drafts={wallTools.drafts}
                 px={px}
@@ -963,6 +979,24 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
               材質
             </Button>
           </Group>
+          {overlaps.length > 0 && (
+            <Alert color="orange" p={6}>
+              <Stack gap={4} align="flex-start">
+                <Text size="xs">
+                  同じ線の上で高さの範囲が重なる壁が {overlaps.length}{" "}
+                  組あります。重なった部分では減衰を二重に数えます。
+                </Text>
+                <Button
+                  size="compact-xs"
+                  variant="light"
+                  color="orange"
+                  onClick={() => wallTools.setSelection([...overlapIds])}
+                >
+                  重なる壁を選択
+                </Button>
+              </Stack>
+            </Alert>
+          )}
           {!readOnly && !extractionOpen && (
             <Button
               size="compact-xs"

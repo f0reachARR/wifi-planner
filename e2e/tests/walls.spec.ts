@@ -119,3 +119,45 @@ test("壁の描画、選択、分割、結合、ドア、一括の材質変更�
     await alice.screenshot({ path: `${process.env.SCREENSHOT_DIR}/walls-alice.png` });
   }
 });
+
+test("壁の高さの範囲と、高さの範囲が重なる壁の警告", async ({ browser }, testInfo) => {
+  mkdirSync(testInfo.outputDir, { recursive: true });
+  const pdfPath = path.join(testInfo.outputDir, "plan.pdf");
+  writeFileSync(pdfPath, (await makeSyntheticPlanPdf()).pdf);
+  const page = await newUserPage(browser, ADMIN.username, ADMIN.password);
+  const project = await apiOf(page).post<{ id: string }>("/projects", { name: "壁の高さ" });
+  await page.goto(`/projects/${project.id}`);
+  await addFloorWithPlan(page, pdfPath);
+
+  // 床から天井までの壁と、同じ線の上の腰壁を描く
+  await tool(page, "壁");
+  await click(page, 0.3, 0.3);
+  const end = await at(page, 0.7, 0.3);
+  await page.mouse.dblclick(end.x, end.y);
+  await click(page, 0.4, 0.3);
+  const end2 = await at(page, 0.6, 0.3);
+  await page.mouse.dblclick(end2.x, end2.y);
+  await expect(selectedCount(page)).toHaveText("1 本の壁を選択中");
+  const top = page.getByRole("textbox", { name: "上端（床から m）" });
+  await expect(top).toHaveAttribute("placeholder", "既定 3");
+  await top.fill("1.2");
+  await expect(
+    page.getByText("高さの範囲が重なる壁が 1 組あります", { exact: false }),
+  ).toBeVisible();
+
+  // 重なる壁を選び、片方を腰壁の上の下がり壁にすると警告が消える（FR-4.11）
+  await page.getByRole("button", { name: "重なる壁を選択" }).click();
+  await expect(selectedCount(page)).toHaveText("2 本の壁を選択中");
+  await expect(top).toHaveAttribute("placeholder", "混在");
+  await tool(page, "選択");
+  await click(page, 0.35, 0.3);
+  await expect(selectedCount(page)).toHaveText("1 本の壁を選択中");
+  await page.getByRole("textbox", { name: "下端（床から m）" }).fill("1.2");
+  await expect(page.getByText("高さの範囲が重なる壁が", { exact: false })).toHaveCount(0);
+
+  // 床から天井までに戻すと、また重なる
+  await page.getByRole("button", { name: "高さを床から天井までに戻す" }).click();
+  await expect(
+    page.getByText("高さの範囲が重なる壁が 1 組あります", { exact: false }),
+  ).toBeVisible();
+});
