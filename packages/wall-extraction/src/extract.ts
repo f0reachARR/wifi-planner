@@ -1,4 +1,4 @@
-import { mergeCollinear, type Point, type Segment } from "./merge.js";
+import { mergeCollinear, mergeParallel, type Point, type Segment } from "./merge.js";
 import { loadOpenCV } from "./opencv.js";
 import { trimToSupport } from "./support.js";
 import { thinZhangSuen } from "./thinning.js";
@@ -32,6 +32,10 @@ export type ExtractParams = {
   perpendicularTolerancePx: number;
   /** 同じ壁とみなす、線に沿った方向の隙間。ドアの開口より小さくする */
   joinGapPx: number;
+  /** hough で、近くに並ぶほぼ平行な線分を間の 1 本にまとめる。壁の両側の線を中心線にするのに使う */
+  mergeParallel: boolean;
+  /** まとめる平行な線分どうしの最大の間隔。壁の厚さより少し大きくする */
+  parallelDistancePx: number;
 };
 
 export const DEFAULT_PARAMS: ExtractParams = {
@@ -43,6 +47,8 @@ export const DEFAULT_PARAMS: ExtractParams = {
   maxLineGapPx: 20,
   perpendicularTolerancePx: 4,
   joinGapPx: 30,
+  mergeParallel: false,
+  parallelDistancePx: 20,
 };
 
 export type ExtractResult = {
@@ -150,7 +156,7 @@ export async function extractWalls(
       });
       lap("merge");
       // 結合した線分は向きを長い断片に合わせて伸ばすので、元の画素から外れていないかを確かめ、画素に合わせて引き直す
-      polylines = trimToSupport(merged, thinned, opened.cols, opened.rows, {
+      let supported = trimToSupport(merged, thinned, opened.cols, opened.rows, {
         // 輪郭では壁の両側の線が近いので、反対側の線の画素を拾わないよう狭くする
         radius:
           params.preprocess === "contour"
@@ -159,8 +165,23 @@ export async function extractWalls(
         maxGap: params.joinGapPx,
         minLength: params.minLineLengthPx,
         minCoverage: 0.8,
-      }).map((s) => [s.a, s.b]);
+      });
       lap("support");
+      if (params.mergeParallel) {
+        // 間の線には画素がないので、画素で確かめた後にまとめる。まとめた線は途切れやすいので、もう一度つなぐ
+        const paired = mergeParallel(supported, {
+          angleToleranceDeg: 3,
+          maxDistance: params.parallelDistancePx,
+          minOverlap: 0.5,
+        });
+        supported = mergeCollinear(paired, {
+          angleToleranceDeg: 3,
+          perpendicularTolerance: params.perpendicularTolerancePx,
+          joinGap: params.joinGapPx,
+        });
+        lap("parallel");
+      }
+      polylines = supported.map((s) => [s.a, s.b]);
     }
     const shifted = polylines.map((pl) => pl.map((p) => ({ x: p.x + ox, y: p.y + oy })));
     return { polylines: shifted, timingsMs: timings };

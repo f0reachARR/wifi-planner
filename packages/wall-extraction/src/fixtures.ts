@@ -13,6 +13,8 @@ export type SyntheticPlan = {
   pdf: Uint8Array;
   /** 正解の壁の中心線（ポイント、左上原点）。hollowWalls なら壁の両側の線 */
   walls: Segment[];
+  /** 正解の壁の中心線（ポイント、左上原点） */
+  centerlines: Segment[];
   ptPerMeter: number;
 };
 
@@ -25,6 +27,7 @@ export async function makeSyntheticPlanPdf(
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const black = rgb(0, 0, 0);
   const walls: Segment[] = [];
+  const centerlines: Segment[] = [];
 
   const toPt = (xm: number, ym: number) => ({
     x: ORIGIN.x + xm * PT_PER_M,
@@ -40,6 +43,7 @@ export async function makeSyntheticPlanPdf(
   const wall = (x0: number, y0: number, x1: number, y1: number, thicknessM: number) => {
     const a = toPt(x0, y0);
     const b = toPt(x1, y1);
+    centerlines.push({ a, b });
     if (!opts.hollowWalls) {
       line(a, b, thicknessM * PT_PER_M);
       walls.push({ a, b });
@@ -117,7 +121,7 @@ export async function makeSyntheticPlanPdf(
     line(a, b, 0.25);
   }
 
-  return { pdf: await doc.save(), walls, ptPerMeter: PT_PER_M };
+  return { pdf: await doc.save(), walls, centerlines, ptPerMeter: PT_PER_M };
 }
 
 /** 抽出した線分が正解の壁をどれだけ覆うか。正解の線分ごとに、覆われた長さの割合が minCover 以上なら検出とみなす */

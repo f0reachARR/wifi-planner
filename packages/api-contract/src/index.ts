@@ -131,6 +131,9 @@ export const ExtractionParams = z.object({
   maxLineGapPx: z.number().min(0).max(200).default(20),
   perpendicularTolerancePx: z.number().min(0).max(50).default(4),
   joinGapPx: z.number().min(0).max(500).default(30),
+  /** hough で、近くに並ぶほぼ平行な線分を間の 1 本にまとめる */
+  mergeParallel: z.boolean().default(false),
+  parallelDistancePx: z.number().min(1).max(200).default(20),
 });
 export type ExtractionParams = z.infer<typeof ExtractionParams>;
 

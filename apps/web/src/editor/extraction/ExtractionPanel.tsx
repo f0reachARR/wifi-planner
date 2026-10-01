@@ -33,6 +33,8 @@ export function ExtractionPanel(props: {
   const [minThicknessPx, setMinThickness] = useState(5);
   const [minLineLengthPx, setMinLength] = useState(40);
   const [joinGapPx, setJoinGap] = useState(30);
+  const [mergeParallel, setMergeParallel] = useState(false);
+  const [parallelDistancePx, setParallelDistance] = useState(20);
   const [materialId, setMaterialId] = useState<string | null>(
     props.materials.concrete ? "concrete" : (Object.keys(props.materials)[0] ?? null),
   );
@@ -44,6 +46,8 @@ export function ExtractionPanel(props: {
     minThicknessPx,
     minLineLengthPx,
     joinGapPx,
+    mergeParallel,
+    parallelDistancePx,
   };
 
   const adopt = (ids: ReadonlySet<string>) => {
@@ -120,14 +124,33 @@ export function ExtractionPanel(props: {
           />
         </Group>
         {method === "hough" && (
-          <NumberInput
-            size="xs"
-            label="線分をつなぐ隙間（px）"
-            min={0}
-            max={500}
-            value={joinGapPx}
-            onChange={num(setJoinGap)}
-          />
+          <>
+            <NumberInput
+              size="xs"
+              label="線分をつなぐ隙間（px）"
+              min={0}
+              max={500}
+              value={joinGapPx}
+              onChange={num(setJoinGap)}
+            />
+            <Switch
+              size="xs"
+              label="近くに並ぶ平行な線分をまとめる"
+              description="壁の両側の線を、その間の中心線 1 本にします"
+              checked={mergeParallel}
+              onChange={(e) => setMergeParallel(e.currentTarget.checked)}
+            />
+            {mergeParallel && (
+              <NumberInput
+                size="xs"
+                label="まとめる線どうしの最大の間隔（px、壁の厚さより少し大きく）"
+                min={1}
+                max={200}
+                value={parallelDistancePx}
+                onChange={num(setParallelDistance)}
+              />
+            )}
+          </>
         )}
         <Text size="xs" c="dimmed">
           {contour

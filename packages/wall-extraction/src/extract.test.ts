@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PARAMS, extractWalls } from "./extract.js";
 import { evaluateRecall, makeSyntheticPlanPdf } from "./fixtures.js";
-import { mergeCollinear } from "./merge.js";
+import { mergeCollinear, mergeParallel } from "./merge.js";
 import { rasterizePdfPage, readPdfInfo } from "./pdf.js";
 import { trimToSupport } from "./support.js";
 import { thinZhangSuen } from "./thinning.js";
@@ -33,6 +33,28 @@ describe("線分の結合", () => {
       { angleToleranceDeg: 3, perpendicularTolerance: 4, joinGap: 30 },
     );
     expect(merged).toHaveLength(3);
+  });
+});
+
+describe("平行な線分の統合", () => {
+  it("近くに並ぶ平行な線分を間の 1 本にし、離れた線と向かい合わない線はまとめない", () => {
+    const merged = mergeParallel(
+      [
+        { a: { x: 0, y: 0 }, b: { x: 100, y: 0 } },
+        { a: { x: 10, y: 10 }, b: { x: 110, y: 10 } },
+        // 間隔が maxDistance より広い
+        { a: { x: 0, y: 60 }, b: { x: 100, y: 60 } },
+        // 平行で近いが、線に沿った方向に重ならない
+        { a: { x: 200, y: 5 }, b: { x: 260, y: 5 } },
+      ],
+      { angleToleranceDeg: 3, maxDistance: 15, minOverlap: 0.5 },
+    );
+    expect(merged).toHaveLength(3);
+    const mid = merged.find((s) => s.a.x < 50 && s.a.y < 50)!;
+    expect(mid.a.y).toBeCloseTo(5, 5);
+    expect(mid.b.y).toBeCloseTo(5, 5);
+    expect(mid.a.x).toBeCloseTo(0, 5);
+    expect(mid.b.x).toBeCloseTo(110, 5);
   });
 });
 
@@ -122,6 +144,29 @@ describe("輪郭を抽出してからの検出", () => {
       const r = await extractWalls(image, { ...DEFAULT_PARAMS, method, preprocess: "contour" });
       expect(recall(r)).toBeGreaterThanOrEqual(0.8);
     }
+  }, 60_000);
+
+  it("平行な線分をまとめると、壁の両側の線から中心線が得られる", async () => {
+    const plan = await makeSyntheticPlanPdf({ hollowWalls: true });
+    const page = await rasterizePdfPage(plan.pdf, 1, 200);
+    const k = 1 / page.unitsPerPx;
+    const toPx = (s: { a: { x: number; y: number }; b: { x: number; y: number } }) => ({
+      a: { x: s.a.x * k, y: s.a.y * k },
+      b: { x: s.b.x * k, y: s.b.y * k },
+    });
+    const image = { data: page.rgba, width: page.width, height: page.height };
+    const r = await extractWalls(image, {
+      ...DEFAULT_PARAMS,
+      method: "hough",
+      preprocess: "contour",
+      mergeParallel: true,
+    });
+    const opts = { maxDistance: 3, minCover: 0.8 };
+    expect(
+      evaluateRecall(plan.centerlines.map(toPx), r.polylines, opts).recall,
+    ).toBeGreaterThanOrEqual(0.8);
+    // 両側の線は残らない
+    expect(evaluateRecall(plan.walls.map(toPx), r.polylines, opts).recall).toBeLessThan(0.2);
   }, 60_000);
 });
 
