@@ -83,18 +83,27 @@ test("フロアの位置合わせ、重ね表示、疑似 3D ビュー", async (
   await page.getByRole("combobox", { name: "置く AP モデル" }).click();
   await page.getByRole("option", { name: "3D 用 AP" }).click();
   await click(page, 0.5, 0.5);
-  await tool(page, "位置合わせ");
-  await click(page, 0.2, 0.2);
-  await click(page, 0.8, 0.2);
   await expect(page.getByText("このフロアが位置合わせの基準です", { exact: false })).toBeVisible();
 
-  // 2F：同じ図面を取り込み、同じ 2 点で位置を合わせる
+  // 2F：同じ図面を取り込み、2F と 1F の図面を並べて同じ 2 点を指定する（FR-3.2）
   await addFloorWithPlan(page, pdfPath);
-  await expect(page.getByText("まだ位置を合わせていません", { exact: false })).toBeVisible();
+  await expect(
+    page.getByText("まだ基準フロアとの位置関係が決まっていません", { exact: false }),
+  ).toBeVisible();
   await tool(page, "位置合わせ");
-  await click(page, 0.2, 0.2);
-  await click(page, 0.8, 0.2);
-  await expect(page.getByText("基準フロアに位置を合わせました")).toBeVisible();
+  const dialog = page.getByRole("dialog", { name: "フロアの位置合わせ" });
+  const field = (name: string) =>
+    dialog.getByRole("textbox", { name }).or(dialog.getByRole("combobox", { name }));
+  await expect(field("動かすフロア")).toHaveValue("2F");
+  await expect(field("合わせる先のフロア")).toHaveValue("1F");
+  for (const name of ["2F の図面", "1F の図面"]) {
+    const box = (await dialog.getByLabel(name).locator("canvas").first().boundingBox())!;
+    for (const fx of [0.2, 0.8])
+      await page.mouse.click(box.x + box.width * fx, box.y + box.height * 0.2);
+  }
+  await dialog.getByRole("button", { name: "合わせる" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByText("1F に合わせてあります")).toBeVisible();
 
   // 2F に吹き抜けを描く（FR-3.8）。3 点を置いて Enter で閉じる
   await tool(page, "吹き抜け");

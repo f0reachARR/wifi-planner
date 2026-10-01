@@ -18,7 +18,7 @@ const floor = (order: number, walls: Floor["walls"], aligned = true): Floor => (
   heightM: 3,
   plan,
   scale: { a: { x: 0, y: 0 }, b: { x: 10, y: 0 }, distanceM: 1 },
-  alignment: aligned ? { a: { x: 0, y: 0 }, b: { x: 100, y: 0 } } : undefined,
+  planOffset: aligned ? { floorId: "f1", rotationDeg: 0, translation: { x: 0, y: 0 } } : undefined,
   walls,
   aps: {},
   photoPins: {},

@@ -26,8 +26,8 @@ function floor(order: number, over: Partial<Floor> = {}): Floor {
     heightM: 3,
     plan,
     scale,
-    // 基準点を図面の同じ位置に置くと、どのフロアも同じ位置に重なる
-    alignment: { a: { x: 0, y: 0 }, b: { x: 100, y: 0 } },
+    // f1（基準フロア）にそのまま重ねる。f1 自身を指す位置合わせは無視される
+    planOffset: { floorId: "f1", rotationDeg: 0, translation: { x: 0, y: 0 } },
     walls: {},
     aps: {},
     photoPins: {},
@@ -148,14 +148,14 @@ describe("フロアをまたぐ計算", () => {
       },
     };
     const directional = { ...ap(60, 50), azimuthDeg: 30 };
-    // 2F は図面を 90° 回して描いたものとし、基準点も 90° 回った位置に置く
+    // 2F は図面を 90° 回して描いたものとし、位置合わせでも 90° 回す
     const one = project({ f1: floor(0, { walls, aps: { a: directional } }) });
     const two = project({
-      f0: floor(0, { alignment: { a: { x: 0, y: 0 }, b: { x: 100, y: 0 } } }),
+      f0: floor(0, { planOffset: undefined }),
       f1: floor(1, {
         walls,
         aps: { a: directional },
-        alignment: { a: { x: 0, y: 0 }, b: { x: 0, y: 100 } },
+        planOffset: { floorId: "f0", rotationDeg: -90, translation: { x: 0, y: 0 } },
       }),
     });
     for (const doc of [one, two]) {
@@ -204,7 +204,7 @@ describe("フロアをまたぐ計算", () => {
   it("位置合わせをしていないフロアは、そのフロアだけで計算する", () => {
     const doc = project({
       f1: floor(0, { aps: { a: ap(100, 50) } }),
-      f2: floor(1, { aps: { b: ap(100, 50) }, alignment: undefined }),
+      f2: floor(1, { aps: { b: ap(100, 50) }, planOffset: undefined }),
       f3: floor(2),
     });
     const s2 = ok(doc, "f2");

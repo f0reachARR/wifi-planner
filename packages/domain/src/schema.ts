@@ -6,7 +6,7 @@ import { Vec2 } from "./geometry.js";
 // プロジェクトの Yjs 文書の形。文書では各要素を ID をキーにした Y.Map に入れるので、
 // ここでも要素そのものには ID を持たせず、Record のキーで表す。
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const Id = z.string().min(1);
 const Color = z.string().regex(/^#[0-9a-fA-F]{6}$/);
@@ -163,6 +163,18 @@ export const Hole = z.object({
 });
 export type Hole = z.infer<typeof Hole>;
 
+/**
+ * あるフロアの図面座標 p を、別のフロアの図面座標 k·R(rotationDeg)·p + translation に移す変換。
+ * R は図面座標（y 下向き）での回転で、正の角度は画面上の時計回り。k は 2 つのフロアのスケールの比で、
+ * 保存せずに計算時に求める（スケールを校正し直しても、図面上の向きと原点の写り先は変わらない）
+ */
+export const PlanOffset = z.object({
+  floorId: Id,
+  rotationDeg: z.number(),
+  translation: Vec2,
+});
+export type PlanOffset = z.infer<typeof PlanOffset>;
+
 export const Floor = z.object({
   name: z.string(),
   order: z.number(),
@@ -170,8 +182,11 @@ export const Floor = z.object({
   heightM: z.number().positive(),
   plan: PlanImage.optional(),
   scale: ScaleCalibration.optional(),
-  /** フロア間の位置合わせの基準点（図面座標） */
-  alignment: z.object({ a: Vec2, b: Vec2 }).optional(),
+  /**
+   * フロア間の位置合わせ（FR-3.2）。このフロアの図面座標を floorId のフロアの図面座標に移す変換で、
+   * 2 つのフロアで指定した基準点 2 点から求めた結果だけを持つ。版 4 で、基準点を持つ alignment から置き換えた
+   */
+  planOffset: PlanOffset.optional(),
   walls: z.record(Id, Wall),
   aps: z.record(Id, Ap),
   photoPins: z.record(Id, PhotoPin),

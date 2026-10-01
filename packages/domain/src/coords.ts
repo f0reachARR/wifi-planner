@@ -1,5 +1,5 @@
 import { degToRad, distance, type Vec2 } from "./geometry.js";
-import type { Floor, PlanImage, ScaleCalibration } from "./schema.js";
+import type { Floor, PlanImage, PlanOffset, ScaleCalibration } from "./schema.js";
 
 // 座標系は設計書 3 章を参照。
 // - 図面座標：画像と同じく x は右、y は下向き。
@@ -60,55 +60,86 @@ export function invertRigid(t: RigidTransform): RigidTransform {
   };
 }
 
-export type Alignment = {
-  /** このフロアのフロア座標からワールド座標への変換 */
-  toWorld: RigidTransform;
-  /** 基準点間の距離の比（このフロア / 基準フロア）。1 から離れていればスケール校正の誤りを疑う */
-  distanceRatio: number;
-};
+/** 写像が原点と (1, 0) を移す先から、回転と平行移動を取り出す。写像は回転と平行移動からなるものとする */
+function rigidFromMap(map: (p: Vec2) => Vec2): RigidTransform {
+  const o = map({ x: 0, y: 0 });
+  const e = map({ x: 1, y: 0 });
+  const angle = Math.atan2(e.y - o.y, e.x - o.x);
+  return { cos: Math.cos(angle), sin: Math.sin(angle), tx: o.x, ty: o.y };
+}
+
+type ScaledPlan = { plan?: Pick<PlanImage, "rotationDeg">; scale?: ScaleCalibration };
+
+/** 位置合わせの結果を、図面座標から相手のフロアの図面座標への関数にする。どちらかが未校正なら undefined */
+export function planOffsetMap(
+  offset: Pick<PlanOffset, "rotationDeg" | "translation">,
+  own: ScaledPlan,
+  target: ScaledPlan,
+): { forward(p: Vec2): Vec2; inverse(p: Vec2): Vec2 } | undefined {
+  const ownMpu = metersPerUnit(own.scale);
+  const targetMpu = metersPerUnit(target.scale);
+  if (ownMpu === undefined || targetMpu === undefined) return undefined;
+  const k = ownMpu / targetMpu;
+  const t = degToRad(offset.rotationDeg);
+  const c = Math.cos(t);
+  const s = Math.sin(t);
+  const { x: tx, y: ty } = offset.translation;
+  return {
+    forward: (p) => ({ x: k * (c * p.x - s * p.y) + tx, y: k * (s * p.x + c * p.y) + ty }),
+    inverse: (p) => {
+      const x = (p.x - tx) / k;
+      const y = (p.y - ty) / k;
+      return { x: c * x + s * y, y: -s * x + c * y };
+    },
+  };
+}
 
 /**
- * 基準点 2 点の対応から、フロア座標をワールド座標（基準フロアのフロア座標）に移す変換を求める（FR-3.2）。
+ * 2 つのフロアの図面で指定した基準点 2 点の対応から、位置合わせの結果を求める（FR-3.2）。
  * スケールは各フロアで校正済みとし、回転と平行移動だけを求める。点 a を一致させ、a→b の向きを揃える。
- * 引数はフロア座標で渡す。`Floor.alignment` は図面座標で保存しているので、先に `planTransform` で変換する。
+ * 点は各フロアの図面座標で渡す。distanceRatio は基準点間の実距離の比（このフロア / 相手）で、
+ * 1 から離れていればスケール校正の誤りを疑う
  */
-export function alignFloor(
-  own: { a: Vec2; b: Vec2 },
-  reference: { a: Vec2; b: Vec2 },
-): Alignment | undefined {
+export function planOffsetFromPoints(
+  own: ScaledPlan & { a: Vec2; b: Vec2 },
+  target: ScaledPlan & { a: Vec2; b: Vec2 },
+): { rotationDeg: number; translation: Vec2; distanceRatio: number } | undefined {
+  const ownMpu = metersPerUnit(own.scale);
+  const targetMpu = metersPerUnit(target.scale);
   const ownLen = distance(own.a, own.b);
-  const refLen = distance(reference.a, reference.b);
-  if (ownLen === 0 || refLen === 0) return undefined;
+  const targetLen = distance(target.a, target.b);
+  if (ownMpu === undefined || targetMpu === undefined || ownLen === 0 || targetLen === 0) {
+    return undefined;
+  }
   const angle =
-    Math.atan2(reference.b.y - reference.a.y, reference.b.x - reference.a.x) -
+    Math.atan2(target.b.y - target.a.y, target.b.x - target.a.x) -
     Math.atan2(own.b.y - own.a.y, own.b.x - own.a.x);
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  const rotatedA = { x: cos * own.a.x - sin * own.a.y, y: sin * own.a.x + cos * own.a.y };
+  const rotationDeg = (angle * 180) / Math.PI;
+  const map = planOffsetMap({ rotationDeg, translation: { x: 0, y: 0 } }, own, target)!;
+  const rotatedA = map.forward(own.a);
   return {
-    toWorld: { cos, sin, tx: reference.a.x - rotatedA.x, ty: reference.a.y - rotatedA.y },
-    distanceRatio: ownLen / refLen,
+    rotationDeg,
+    translation: { x: target.a.x - rotatedA.x, y: target.a.y - rotatedA.y },
+    distanceRatio: (ownLen * ownMpu) / (targetLen * targetMpu),
   };
 }
 
 export type FloorPlacement = {
   /** フロア座標からワールド座標への変換 */
   toWorld: RigidTransform;
-  /** 基準フロアか、基準点で位置を合わせたフロアなら true */
+  /** 基準フロアか、位置合わせをたどって基準フロアにつながるフロアなら true */
   aligned: boolean;
   isReference: boolean;
-  /** 基準点間の距離の比（このフロア / 基準フロア） */
-  distanceRatio?: number;
   plan: PlanTransform;
 };
 
 /**
  * 各フロアのワールド座標での置き方（FR-3.2）。基準は order が最小で、スケールを校正済みのフロアとする。
- * ほかのフロアは、自分と基準フロアの両方に基準点があるときだけ位置を合わせ、なければ恒等変換のまま aligned を false にする。
- * スケールが未校正のフロアは含めない。
+ * 位置合わせの結果（planOffset）を、どちら向きにも使える辺とみなし、基準フロアから辺をたどって届くフロアの位置を決める。
+ * 届かないフロアは恒等変換のまま aligned を false にする。スケールが未校正のフロアは含めない。
  */
 export function floorPlacements(
-  floors: Record<string, Pick<Floor, "order" | "plan" | "scale" | "alignment">>,
+  floors: Record<string, Pick<Floor, "order" | "plan" | "scale" | "planOffset">>,
 ): Record<string, FloorPlacement> {
   const calibrated = Object.entries(floors)
     .map(([id, f]) => ({ id, f, plan: planTransform(f.plan, f.scale) }))
@@ -117,28 +148,110 @@ export function floorPlacements(
   const out: Record<string, FloorPlacement> = {};
   const base = calibrated[0];
   if (!base) return out;
-  const toFloorPair = (plan: PlanTransform, al: { a: Vec2; b: Vec2 }) => ({
-    a: plan.toFloor(al.a),
-    b: plan.toFloor(al.b),
-  });
-  const baseRef = base.f.alignment && toFloorPair(base.plan, base.f.alignment);
-  for (const { id, f, plan } of calibrated) {
-    if (id === base.id) {
-      out[id] = { toWorld: IDENTITY, aligned: true, isReference: true, plan };
-      continue;
+  const byId = new Map(calibrated.map((x) => [x.id, x]));
+
+  // 辺：位置の決まった from から to の位置を決める。map は to の図面座標を from の図面座標に移す
+  const edges = new Map<string, { to: string; map: (p: Vec2) => Vec2 }[]>();
+  const addEdge = (from: string, to: string, map: (p: Vec2) => Vec2) => {
+    const list = edges.get(from) ?? [];
+    list.push({ to, map });
+    edges.set(from, list);
+  };
+  for (const { id, f } of calibrated) {
+    const offset = f.planOffset;
+    const target = offset && offset.floorId !== id ? byId.get(offset.floorId) : undefined;
+    if (!offset || !target) continue;
+    const map = planOffsetMap(offset, f, target.f)!;
+    addEdge(target.id, id, map.forward);
+    addEdge(id, target.id, map.inverse);
+  }
+
+  out[base.id] = { toWorld: IDENTITY, aligned: true, isReference: true, plan: base.plan };
+  const queue = [base.id];
+  while (queue.length > 0) {
+    const from = queue.shift()!;
+    const placed = out[from]!;
+    for (const { to, map } of edges.get(from) ?? []) {
+      if (out[to]) continue;
+      const plan = byId.get(to)!.plan;
+      out[to] = {
+        toWorld: rigidFromMap((q) =>
+          applyRigid(placed.toWorld, placed.plan.toFloor(map(plan.toPlan(q)))),
+        ),
+        aligned: true,
+        isReference: false,
+        plan,
+      };
+      queue.push(to);
     }
-    const aligned = baseRef && f.alignment && alignFloor(toFloorPair(plan, f.alignment), baseRef);
-    out[id] = aligned
-      ? {
-          toWorld: aligned.toWorld,
-          aligned: true,
-          isReference: false,
-          distanceRatio: aligned.distanceRatio,
-          plan,
-        }
-      : { toWorld: IDENTITY, aligned: false, isReference: false, plan };
+  }
+  for (const { id, plan } of calibrated) {
+    out[id] ??= { toWorld: IDENTITY, aligned: false, isReference: false, plan };
   }
   return out;
+}
+
+/**
+ * own を target に合わせたとき（own の結果を置き換え、target が own に合わせてあればそれを消す）に起きる問題。
+ * - cycle：own と target が別の経路で既につながっていて、辺が輪になる。輪の中の 1 つの結果が使われなくなる
+ * - detach：target が own を通してだけ基準フロアにつながっていて、合わせると両方とも基準フロアから外れる
+ * どちらも無ければ undefined。もともと基準フロアにつながっていない target に合わせるのは問題としない
+ */
+export function planOffsetConflict(
+  floors: Record<string, Pick<Floor, "order" | "plan" | "scale" | "planOffset">>,
+  ownId: string,
+  targetId: string,
+): "cycle" | "detach" | undefined {
+  const own = floors[ownId];
+  const target = floors[targetId];
+  if (!own || !target) return undefined;
+  const rest = {
+    ...floors,
+    [ownId]: { ...own, planOffset: undefined },
+    [targetId]:
+      target.planOffset?.floorId === ownId ? { ...target, planOffset: undefined } : target,
+  };
+  const group = offsetComponents(rest);
+  if (!group.has(ownId) || !group.has(targetId)) return undefined;
+  if (group.get(ownId) === group.get(targetId)) return "cycle";
+  const base = group.get(referenceFloorId(floors) ?? "");
+  const wasAligned = floorPlacements(floors)[targetId]?.aligned ?? false;
+  if (wasAligned && group.get(ownId) !== base && group.get(targetId) !== base) return "detach";
+  return undefined;
+}
+
+/** 基準フロアの id。order が最小で、スケールを校正済みのフロア */
+function referenceFloorId(
+  floors: Record<string, Pick<Floor, "order" | "plan" | "scale">>,
+): string | undefined {
+  let best: { id: string; order: number } | undefined;
+  for (const [id, f] of Object.entries(floors)) {
+    if (!planTransform(f.plan, f.scale)) continue;
+    if (!best || f.order < best.order) best = { id, order: f.order };
+  }
+  return best?.id;
+}
+
+/** 位置合わせの結果を辺として、校正済みのフロアをつながりごとに分ける。値は同じつながりで同じになる代表の id */
+function offsetComponents(
+  floors: Record<string, Pick<Floor, "plan" | "scale" | "planOffset">>,
+): Map<string, string> {
+  const ids = Object.keys(floors).filter((id) =>
+    planTransform(floors[id]!.plan, floors[id]!.scale),
+  );
+  const parent = new Map(ids.map((id) => [id, id]));
+  const find = (id: string): string => {
+    const p = parent.get(id)!;
+    if (p === id) return id;
+    const root = find(p);
+    parent.set(id, root);
+    return root;
+  };
+  for (const id of ids) {
+    const to = floors[id]!.planOffset?.floorId;
+    if (to && to !== id && parent.has(to)) parent.set(find(id), find(to));
+  }
+  return new Map(ids.map((id) => [id, find(id)]));
 }
 
 /** あるフロアの図面座標を、別のフロアの図面座標に移す関数（重ね表示に使う、FR-3.3） */

@@ -74,6 +74,7 @@ import { useSession, useSessionState } from "../collab/react";
 import { notifyError } from "../notify";
 import { composeImage, type HeatmapMode, MODE_LABELS } from "../propagation/render";
 import { useHeatmap } from "../propagation/useHeatmap";
+import { AlignFloorsModal } from "./AlignFloorsModal";
 import { ApInspector } from "./aps/ApInspector";
 import { type ApEntry, ApLayer } from "./aps/ApLayer";
 import { ApTableModal } from "./aps/ApTableModal";
@@ -114,6 +115,7 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
   const [editingMaterials, setEditingMaterials] = useState(false);
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [settingScale, setSettingScale] = useState(false);
+  const [aligning, setAligning] = useState(false);
   const [calibration, setCalibration] = useState<{ a: Vec2; b: Vec2 }>();
   const plan = floor.plan;
   const materials = doc?.materials ?? {};
@@ -274,6 +276,8 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
   const here = placements[floor.id];
   const [overlays, setOverlays] = useState<Record<string, { on: boolean; opacity: number }>>({});
   const otherFloors = sortedFloors(doc?.floors ?? {}).filter((f) => f.id !== floor.id);
+  const offsetTarget =
+    floor.planOffset && otherFloors.find((f) => f.id === floor.planOffset!.floorId);
 
   const selectedWalls = wallTools.selection.filter((id) => floor.walls[id]);
   const selectedAps = wallTools.selection.filter((id) => floor.aps[id]);
@@ -360,10 +364,6 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
           }
           handlers={{
             onCalibrate: (a, b) => setCalibration({ a, b }),
-            onAlign: (a, b) => {
-              update({ alignment: { a, b } });
-              setTool("select");
-            },
             onCrop: (crop) => {
               update({ plan: { ...plan, crop } });
               setTool("select");
@@ -542,7 +542,6 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                       {(
                         [
                           ["calibrate", "スケール校正", <IconRuler2 key="c" size={14} />],
-                          ["align", "位置合わせ", <IconStack2 key="a" size={14} />],
                           ["crop", "トリミング", <IconCrop key="t" size={14} />],
                         ] as const
                       ).map(([value, label, icon]) => (
@@ -559,6 +558,17 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                           {label}
                         </Button>
                       ))}
+                      <Button
+                        size="compact-xs"
+                        variant="light"
+                        leftSection={<IconStack2 size={14} />}
+                        onClick={() => {
+                          setAligning(true);
+                          setAdjustOpen(false);
+                        }}
+                      >
+                        位置合わせ
+                      </Button>
                     </Group>
                     <Button
                       size="compact-xs"
@@ -813,21 +823,6 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
             <Text size="xs">図面上で距離がわかっている 2 点をクリックしてください</Text>
           </Paper>
         )}
-        {tool === "align" && (
-          <Paper
-            pos="absolute"
-            bottom={8}
-            left="50%"
-            style={{ transform: "translateX(-50%)" }}
-            shadow="sm"
-            p="xs"
-            withBorder
-          >
-            <Text size="xs">
-              ほかのフロアと共通の地点（柱の角など）を 2 点、決まった順にクリックしてください
-            </Text>
-          </Paper>
-        )}
         {tool === "crop" && (
           <Paper
             pos="absolute"
@@ -864,6 +859,12 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
         <PlanImportModal
           floor={importing ? floor : undefined}
           onClose={() => setImporting(false)}
+        />
+        <AlignFloorsModal
+          opened={aligning}
+          floors={doc?.floors ?? {}}
+          floorId={floor.id}
+          onClose={() => setAligning(false)}
         />
       </Box>
       <Box
@@ -937,18 +938,36 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
             {!here
               ? "スケールを校正すると位置合わせができます"
               : here.isReference
-                ? "このフロアが位置合わせの基準です。ほかのフロアと同じ地点（柱の角など）を「位置合わせ」で 2 点指定してください。"
+                ? "このフロアが位置合わせの基準です。ほかのフロアは「位置合わせ」で、位置の決まったフロアと同じ地点（柱の角など）を 2 点ずつ指定して合わせます。"
                 : here.aligned
-                  ? "基準フロアに位置を合わせました"
-                  : "まだ位置を合わせていません。「位置合わせ」で、基準フロアと同じ地点を 2 点指定してください。"}
+                  ? "基準フロアとの位置関係が決まっています"
+                  : "まだ基準フロアとの位置関係が決まっていません。「位置合わせ」で、位置の決まったフロアと同じ地点を 2 点ずつ指定してください。"}
           </Text>
-          {here?.distanceRatio !== undefined && Math.abs(here.distanceRatio - 1) > 0.05 && (
-            <Alert color="orange" p={6}>
-              <Text size="xs">
-                基準点の間の距離が基準フロアと {Math.round(Math.abs(here.distanceRatio - 1) * 100)}%
-                違います。どちらかのスケール校正が誤っている可能性があります。
-              </Text>
-            </Alert>
+          {offsetTarget && (
+            <Group gap={4} justify="space-between" wrap="nowrap">
+              <Text size="xs">{offsetTarget.name} に合わせてあります</Text>
+              {!readOnly && (
+                <Button
+                  size="compact-xs"
+                  variant="subtle"
+                  color="red"
+                  onClick={() => update({ planOffset: undefined })}
+                >
+                  解除
+                </Button>
+              )}
+            </Group>
+          )}
+          {here && !readOnly && (
+            <Button
+              size="compact-xs"
+              variant="light"
+              leftSection={<IconStack2 size={14} />}
+              onClick={() => setAligning(true)}
+              style={{ alignSelf: "flex-start" }}
+            >
+              位置合わせ
+            </Button>
           )}
           {otherFloors.map((other) => {
             const o = overlays[other.id] ?? { on: false, opacity: 0.4 };
