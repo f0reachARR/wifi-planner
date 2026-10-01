@@ -977,6 +977,7 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
             (selectedAps.length === 0 && selectedHoles.length === 0)) && (
             <WallInspector
               floorId={floor.id}
+              floorHeightM={floor.heightM}
               walls={walls}
               materials={materials}
               selection={selectedWalls}

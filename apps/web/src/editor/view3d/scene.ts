@@ -2,10 +2,14 @@ import {
   applyRigid,
   type Floor,
   type FloorPlacement,
+  type HeightRange,
   type Material,
+  openingHeightRange,
   pointAtLength,
   type Rect,
+  splitByOpeningHeight,
   type Vec2,
+  wallHeightRange,
 } from "@wifi-planner/domain";
 import type { GridSpec } from "@wifi-planner/propagation";
 import { ShapeUtils, Vector2 } from "three";
@@ -161,8 +165,8 @@ const rgb = (hex: string): Vec3 => [
 ];
 
 /**
- * 壁を、床から天井までの高さを持つ面にする。開口部の区間は開口部の材質の色にする。
- * heightScale は見やすさのために高さ方向だけを引き伸ばす倍率
+ * 壁を、壁ごとの高さの範囲（FR-4.10）を持つ面にする。開口部の区間は、開口部の高さの範囲を開口部の材質の色にし、
+ * その上下を壁の材質の色にする。heightScale は見やすさのために高さ方向だけを引き伸ばす倍率
  */
 export function wallGeometry(
   floor: Floor,
@@ -172,9 +176,9 @@ export function wallGeometry(
 ) {
   const positions: number[] = [];
   const colors: number[] = [];
-  const bottom = floor.elevationM * heightScale;
-  const top = (floor.elevationM + floor.heightM) * heightScale;
-  const push = (a: Vec2, b: Vec2, color: Vec3) => {
+  const push = (a: Vec2, b: Vec2, color: Vec3, range: HeightRange) => {
+    const bottom = (floor.elevationM + range.bottom) * heightScale;
+    const top = (floor.elevationM + range.top) * heightScale;
     const wa = planToWorld(placement, a);
     const wb = planToWorld(placement, b);
     const corners: Vec3[] = [
@@ -190,6 +194,7 @@ export function wallGeometry(
   };
   for (const wall of Object.values(floor.walls)) {
     const base = rgb(materials[wall.materialId]?.color ?? "#888888");
+    const range = wallHeightRange(wall, floor.heightM);
     const cuts = new Set<number>([0]);
     let total = 0;
     for (let i = 1; i < wall.points.length; i++) {
@@ -210,8 +215,15 @@ export function wallGeometry(
       if (s1 - s0 < 1e-9) continue;
       const mid = (s0 + s1) / 2;
       const opening = wall.openings.find((o) => o.start <= mid && mid < o.end);
-      const color = opening ? rgb(materials[opening.materialId]?.color ?? "#888888") : base;
-      push(pointAtLength(wall.points, s0).point, pointAtLength(wall.points, s1).point, color);
+      const a = pointAtLength(wall.points, s0).point;
+      const b = pointAtLength(wall.points, s1).point;
+      if (!opening) {
+        push(a, b, base, range);
+        continue;
+      }
+      const color = rgb(materials[opening.materialId]?.color ?? "#888888");
+      for (const part of splitByOpeningHeight(range, openingHeightRange(opening, range)))
+        push(a, b, part.isOpening ? color : base, part.range);
     }
   }
   return { positions: Float32Array.from(positions), colors: Float32Array.from(colors) };
