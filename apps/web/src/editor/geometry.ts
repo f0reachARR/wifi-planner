@@ -26,7 +26,7 @@ export function hitTestWall(walls: readonly WallEntry[], p: Vec2, tolerance: num
   return best;
 }
 
-export function segmentsIntersect(a: Vec2, b: Vec2, c: Vec2, d: Vec2): boolean {
+function segmentsIntersect(a: Vec2, b: Vec2, c: Vec2, d: Vec2): boolean {
   const cross = (o: Vec2, p: Vec2, q: Vec2) =>
     (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x);
   const d1 = cross(c, d, a);

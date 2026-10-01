@@ -340,7 +340,16 @@ export function FloorView({
           ? wallTools.cancelDrawing()
           : wallTools.setSelection([]),
     ],
-    ["Enter", () => drawingTool && wallTools.finishDrawing()],
+    // 描いていないときは、フォーカスしたボタン（エリアの一覧の名前など）を Enter で押せるよう、既定の動作を止めない
+    [
+      "Enter",
+      (e) => {
+        if (!drawingTool) return;
+        e.preventDefault();
+        wallTools.finishDrawing();
+      },
+      { preventDefault: false },
+    ],
     ["V", () => setTool("select")],
     [
       "mod+A",

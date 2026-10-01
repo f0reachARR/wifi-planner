@@ -58,7 +58,8 @@ test("エリアの人数と、エリア内の AP 1 台あたりの人数", async
   await drag(page, [0.6, 0.5], [0.85, 0.5]);
   await expect(cells.nth(2)).toHaveText("1");
   await expect(cells.nth(3)).toHaveText("40.0");
-  await row.click();
+  // 一覧の名前のボタンから、キーボードでもエリアを選べる
+  await row.getByRole("button", { name: "エリア 1" }).press("Enter");
   await expect(
     page.getByText("AP 1 台あたり：40.0 人/AP（目安の 30 人を超えています）"),
   ).toBeVisible();

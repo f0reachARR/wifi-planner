@@ -1,5 +1,5 @@
 import { type Area, closestOnPolyline, type Vec2 } from "@wifi-planner/domain";
-import { holeRing, pointInPolygon, polygonArea, segmentsIntersect } from "../geometry";
+import { holeRing, pointInPolygon, polygonArea } from "../geometry";
 
 export type AreaEntry = Area & { id: string };
 
@@ -73,21 +73,58 @@ export function overlappingAreas(areas: readonly AreaEntry[]): Set<string> {
 }
 
 /**
- * 2 つの多角形の内側が重なるか。辺が接するだけ（隣り合う部屋を同じ線で描いた場合）は重ならないとする。
- * 辺どうしが交わるか、一方の頂点か内側の点が他方の内側にあれば重なるとする
+ * 2 つの多角形の内側が、正の面積で重なるか。辺が接するだけ（隣り合う部屋を同じ線で描いた場合）は重ならないとする。
+ * 頂点と辺どうしの交点の x 座標で平面を縦の帯に区切ると、帯の中では辺の上下の並びが変わらないので、
+ * 帯の真ん中の縦の線の上で、両方の内側の区間が正の長さで重なるかを調べれば足りる
  */
 export function polygonsOverlap(a: readonly Vec2[], b: readonly Vec2[]): boolean {
-  for (let i = 0; i < a.length; i++) {
-    for (let j = 0; j < b.length; j++) {
-      if (segmentsIntersect(a[i]!, a[(i + 1) % a.length]!, b[j]!, b[(j + 1) % b.length]!))
-        return true;
+  const xs = [...a, ...b].map((p) => p.x);
+  for (const [p, q] of edges(a)) {
+    for (const [r, t] of edges(b)) {
+      const x = intersectionX(p, q, r, t);
+      if (x !== undefined) xs.push(x);
     }
   }
-  const eps = 1e-6 * Math.max(extent(a), extent(b));
-  const strictlyInside = (p: Vec2, poly: readonly Vec2[]) =>
-    pointInPolygon(p, poly) && closestOnPolyline(p, holeRing(poly)).distance > eps;
-  const probes = (poly: readonly Vec2[]) => [...poly, ...interiorPoints(poly)];
-  return probes(a).some((p) => strictlyInside(p, b)) || probes(b).some((p) => strictlyInside(p, a));
+  xs.sort((u, v) => u - v);
+  const eps = 1e-9 * Math.max(extent(a), extent(b));
+  for (let i = 1; i < xs.length; i++) {
+    if (xs[i]! - xs[i - 1]! <= eps) continue;
+    const x = (xs[i]! + xs[i - 1]!) / 2;
+    if (overlapLength(insideIntervals(a, x), insideIntervals(b, x)) > eps) return true;
+  }
+  return false;
+}
+
+const edges = (poly: readonly Vec2[]): [Vec2, Vec2][] =>
+  poly.map((p, i) => [p, poly[(i + 1) % poly.length]!]);
+
+/** 2 本の線分が 1 点で交わるか接するときの、その点の x 座標。平行なら undefined */
+function intersectionX(p: Vec2, q: Vec2, r: Vec2, t: Vec2): number | undefined {
+  const d = (q.x - p.x) * (t.y - r.y) - (q.y - p.y) * (t.x - r.x);
+  if (d === 0) return undefined;
+  const u = ((r.x - p.x) * (t.y - r.y) - (r.y - p.y) * (t.x - r.x)) / d;
+  const v = ((r.x - p.x) * (q.y - p.y) - (r.y - p.y) * (q.x - p.x)) / d;
+  if (u < 0 || u > 1 || v < 0 || v > 1) return undefined;
+  return p.x + (q.x - p.x) * u;
+}
+
+/** 縦の線 x の上で多角形の内側にある区間。偶奇の規則で数える（pointInPolygon と同じ） */
+function insideIntervals(poly: readonly Vec2[], x: number): [number, number][] {
+  const ys: number[] = [];
+  for (const [p, q] of edges(poly)) {
+    if (p.x < x !== q.x < x) ys.push(p.y + ((q.y - p.y) * (x - p.x)) / (q.x - p.x));
+  }
+  ys.sort((u, v) => u - v);
+  const out: [number, number][] = [];
+  for (let i = 0; i + 1 < ys.length; i += 2) out.push([ys[i]!, ys[i + 1]!]);
+  return out;
+}
+
+function overlapLength(a: readonly [number, number][], b: readonly [number, number][]): number {
+  let total = 0;
+  for (const [a0, a1] of a)
+    for (const [b0, b1] of b) total += Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
+  return total;
 }
 
 function extent(poly: readonly Vec2[]): number {
@@ -97,17 +134,25 @@ function extent(poly: readonly Vec2[]): number {
 }
 
 /**
- * 多角形の内側にある点。頂点とその両隣の 3 点の重心のうち、内側にあるものを返す。
- * 同じ形のエリアや、頂点がすべて他方の輪郭の上にあるエリアの重なりを見つけるのに使う
+ * ラベルを置く点。凹んだ多角形でも内側に入り、輪郭からなるべく離れた点にする。
+ * 外接矩形を横に切る線の上で内側にある区間の中点を候補とし、輪郭から最も遠いものを選ぶ
  */
-function interiorPoints(poly: readonly Vec2[]): Vec2[] {
-  const out: Vec2[] = [];
-  for (let i = 0; i < poly.length; i++) {
-    const p = poly[(i + poly.length - 1) % poly.length]!;
-    const q = poly[i]!;
-    const r = poly[(i + 1) % poly.length]!;
-    const c = { x: (p.x + q.x + r.x) / 3, y: (p.y + q.y + r.y) / 3 };
-    if (pointInPolygon(c, poly)) out.push(c);
+export function labelPoint(poly: readonly Vec2[]): Vec2 {
+  const ys = poly.map((p) => p.y);
+  const top = Math.min(...ys);
+  const height = Math.max(...ys) - top;
+  const ring = holeRing(poly);
+  let best: { point: Vec2; clearance: number } | undefined;
+  const LINES = 16;
+  for (let k = 0; k < LINES; k++) {
+    const y = top + (height * (k + 0.5)) / LINES;
+    // 縦の線の区間を求める関数を、x と y を入れ替えて使う
+    const swapped = poly.map((p) => ({ x: p.y, y: p.x }));
+    for (const [x0, x1] of insideIntervals(swapped, y)) {
+      const point = { x: (x0 + x1) / 2, y };
+      const clearance = closestOnPolyline(point, ring).distance;
+      if (!best || clearance > best.clearance) best = { point, clearance };
+    }
   }
-  return out;
+  return best?.point ?? poly[0]!;
 }

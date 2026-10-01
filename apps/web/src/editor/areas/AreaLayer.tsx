@@ -3,7 +3,7 @@ import { Fragment } from "react";
 import { Group, Label, Line, Rect, Tag, Text } from "react-konva";
 import type { PeerPresence } from "../../collab/session";
 import type { WallDrafts } from "../walls/WallLayer";
-import { type AreaEntry, type AreaStat, formatPeoplePerAp } from "./stats";
+import { type AreaEntry, type AreaStat, formatPeoplePerAp, labelPoint } from "./stats";
 
 const flat = (points: readonly Vec2[]) => points.flatMap((p) => [p.x, p.y]);
 export const AREA_COLOR = "#0c8599";
@@ -52,9 +52,8 @@ export function AreaLayer(props: {
         const peer = peerSelection.get(a.id);
         const warned = !!stat?.warning || !!stat?.overlapping;
         const color = warned ? AREA_WARNING_COLOR : AREA_COLOR;
-        // ラベルは頂点の重心に置く。画面上で読めるよう、図面の回転を打ち消す
-        const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
-        const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+        // ラベルは凹んだエリアでも内側に入る点に置く。画面上で読めるよう、図面の回転を打ち消す
+        const { x: cx, y: cy } = labelPoint(pts);
         const lines = [
           a.name,
           `${a.headcount} 人／AP ${stat?.apIds.length ?? 0} 台`,

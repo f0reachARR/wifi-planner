@@ -1,4 +1,13 @@
-import { Alert, Button, NumberInput, Stack, Table, Text, TextInput } from "@mantine/core";
+import {
+  Alert,
+  Button,
+  NumberInput,
+  Stack,
+  Table,
+  Text,
+  TextInput,
+  UnstyledButton,
+} from "@mantine/core";
 import { IconTrash } from "@tabler/icons-react";
 import { updateArea, updateSettings } from "@wifi-planner/domain/ops";
 import { useSession } from "../../collab/react";
@@ -114,7 +123,20 @@ export function AreaPanel(props: {
                   bg={selection.includes(a.id) ? "var(--mantine-color-blue-light)" : undefined}
                   style={{ cursor: "pointer" }}
                 >
-                  <Table.Td c={color}>{a.name}</Table.Td>
+                  <Table.Td>
+                    {/* 行のクリックはマウスだけで使えるので、名前をボタンにしてキーボードでも選べるようにする */}
+                    <UnstyledButton
+                      fz="xs"
+                      c={color}
+                      aria-pressed={selection.includes(a.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        props.setSelection([a.id]);
+                      }}
+                    >
+                      {a.name}
+                    </UnstyledButton>
+                  </Table.Td>
                   <Table.Td ta="right">{a.headcount}</Table.Td>
                   <Table.Td ta="right">{stat?.apIds.length ?? 0}</Table.Td>
                   <Table.Td ta="right" c={color}>
