@@ -3,7 +3,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { makeSyntheticPlanPdf } from "@wifi-planner/wall-extraction/fixtures";
 import { ADMIN } from "../playwright.config";
-import { addFloorWithPlan, apiOf, click, newUserPage, tool } from "./helpers";
+import { addFloorWithPlan, apiOf, at, click, newUserPage, tool } from "./helpers";
 
 const PATTERN_CSV = [
   "cut,deg,gain_dbi",
@@ -49,6 +49,16 @@ test("AP モデルの作成、AP の配置と設定、一覧からの一括変�
   await tool(page, "選択");
   await click(page, 0.35, 0.4);
   await expect(page.getByLabel("名前")).toHaveValue("AP-1");
+
+  // 矢印の先のハンドルをドラッグして向きを変える。画面の真上に向けると 90°
+  const ap1 = await at(page, 0.35, 0.4);
+  await page.mouse.move(ap1.x + 20, ap1.y);
+  await page.mouse.down();
+  await page.mouse.move(ap1.x, ap1.y - 40, { steps: 8 });
+  await page.mouse.up();
+  await expect(page.getByLabel("方位角")).toHaveValue("90°");
+  await expect(page.getByLabel("名前")).toHaveValue("AP-1");
+
   const radio1 = page.getByText("radio1", { exact: true }).locator("xpath=../..");
   await radio1.getByRole("combobox", { name: "5 GHz チャネル" }).click();
   await page.getByRole("option", { name: "149（国内不可）" }).click();

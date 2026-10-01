@@ -1,12 +1,16 @@
 import type { Ap, ApModel } from "@wifi-planner/domain";
 import { Arrow, Circle, Group, Text } from "react-konva";
 import type { PeerPresence } from "../../collab/session";
+import { azimuthToPlanDir } from "./azimuth";
 
 export type ApEntry = Ap & { id: string };
 
+/** 主ビームの向きを示す矢印の長さ（画面上のピクセル）。回転ハンドルはこの先に置く */
+export const AP_ARROW_PX = 20;
+
 /**
  * AP の記号。位置は図面座標。主ビームの向きを矢印で示す（無指向性のアンテナでも、方位角の向きを示す）。
- * 方位角はフロア座標（y 上向き）の +x から反時計回りなので、図面座標（y 下向き）では y を反転して向きを求める。
+ * 方位角はフロア座標（y 上向き）の +x から反時計回りなので、azimuthToPlanDir で図面座標（y 下向き）の向きにする。
  * 図面の回転はキャンバスのグループが受け持つので、ここでは図面座標のまま描けばよい。
  */
 export function ApLayer(props: {
@@ -15,6 +19,10 @@ export function ApLayer(props: {
   selection: ReadonlySet<string>;
   peers: readonly PeerPresence[];
   move?: { dx: number; dy: number };
+  /** 回転ハンドルをドラッグ中の AP の方位角 */
+  rotate?: { apId: string; azimuthDeg: number };
+  /** 選んだ AP の矢印の先に、向きを変えるハンドルを出す */
+  showHandles?: boolean;
   px: number;
   /** AP があるフロアの図面の回転。方位角を図面座標の向きに直すのに使う */
   planRotationDeg: number;
@@ -33,11 +41,10 @@ export function ApLayer(props: {
         const x = ap.position.x + (selected && props.move ? props.move.dx : 0);
         const y = ap.position.y + (selected && props.move ? props.move.dy : 0);
         const enabled = ap.radios.some((r) => r.enabled);
-        // フロア座標の方位角を、回転前の図面座標の向きにする（フロア座標 = 回転した図面座標の y を反転したもの）
-        const floorAngle = (ap.azimuthDeg * Math.PI) / 180;
-        const rot = (props.planRotationDeg * Math.PI) / 180;
-        const dirX = Math.cos(floorAngle) * Math.cos(rot) - Math.sin(floorAngle) * Math.sin(rot);
-        const dirY = -Math.cos(floorAngle) * Math.sin(rot) - Math.sin(floorAngle) * Math.cos(rot);
+        const azimuthDeg = props.rotate?.apId === ap.id ? props.rotate.azimuthDeg : ap.azimuthDeg;
+        const dir = azimuthToPlanDir(azimuthDeg, props.planRotationDeg);
+        const tipX = dir.x * AP_ARROW_PX * px;
+        const tipY = dir.y * AP_ARROW_PX * px;
         return (
           <Group key={ap.id} x={x} y={y}>
             {peerSelection.has(ap.id) && (
@@ -45,7 +52,7 @@ export function ApLayer(props: {
             )}
             {selected && <Circle radius={13 * px} fill="#228be6" opacity={0.35} />}
             <Arrow
-              points={[0, 0, dirX * 20 * px, dirY * 20 * px]}
+              points={[0, 0, tipX, tipY]}
               stroke="#343a40"
               fill="#343a40"
               strokeWidth={1.5 * px}
@@ -84,6 +91,16 @@ export function ApLayer(props: {
                 fill="#495057"
               />
             </Group>
+            {selected && props.showHandles && (
+              <Circle
+                x={tipX}
+                y={tipY}
+                radius={4 * px}
+                fill="#ffffff"
+                stroke="#228be6"
+                strokeWidth={2 * px}
+              />
+            )}
           </Group>
         );
       })}

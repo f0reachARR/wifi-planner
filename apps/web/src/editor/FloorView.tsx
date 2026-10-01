@@ -177,6 +177,7 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
     holes,
     tool,
     metersPerUnit: mpu,
+    planRotationDeg: plan?.rotationDeg ?? 0,
     materialIds,
     guides: snapGuides.guides,
     onPlaceAp: placeAp,
@@ -402,6 +403,8 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                 selection={wallTools.selectionSet}
                 peers={floorPeers}
                 move={wallTools.drafts.move}
+                rotate={wallTools.drafts.rotate}
+                showHandles={tool === "select" && !readOnly && wallTools.selection.length === 1}
                 px={px}
                 planRotationDeg={plan.rotationDeg}
               />

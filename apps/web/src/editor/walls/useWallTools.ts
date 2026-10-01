@@ -18,13 +18,15 @@ import {
   readHole,
   readWall,
   splitWallAt,
+  updateAp,
   updateHole,
   updateWall,
 } from "@wifi-planner/domain/ops";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "../../collab/react";
 import { notifyError } from "../../notify";
-import type { ApEntry } from "../aps/ApLayer";
+import { AP_ARROW_PX, type ApEntry } from "../aps/ApLayer";
+import { azimuthToPlanDir, planDirToAzimuth } from "../aps/azimuth";
 import type { CanvasTool, PointerInfo, ToolController } from "../canvas/PlanCanvas";
 import {
   type HoleEntry,
@@ -69,7 +71,8 @@ type Gesture =
       index: number;
       point: Vec2;
       snap: SnapKind;
-    };
+    }
+  | { kind: "rotate"; apId: string; azimuthDeg: number };
 
 /** 開口部の既定の幅（メートル） */
 const OPENING_WIDTH_M: Record<OpeningKind, number> = { door: 0.9, window: 1.8, other: 1.0 };
@@ -90,6 +93,8 @@ export function useWallTools(opts: {
   holes: HoleEntry[];
   tool: CanvasTool;
   metersPerUnit: number | undefined;
+  /** 図面の回転。AP の方位角と図面座標の向きを相互に直すのに使う */
+  planRotationDeg: number;
   materialIds: ReadonlySet<string>;
   /** スナップ用の図面の線 */
   guides?: SnapGuides;
@@ -296,8 +301,20 @@ export function useWallTools(opts: {
   if (tool === "select") {
     controller.cursor = "default";
     controller.onDown = (e) => {
-      // 選んだ壁か吹き抜けが 1 つなら、頂点のハンドルを先に調べる
+      // 選んだ AP が 1 つなら回転のハンドルを、壁か吹き抜けが 1 つなら頂点のハンドルを先に調べる
       if (!readOnly && selection.length === 1) {
+        const ap = aps.find((a) => a.id === selection[0]);
+        if (ap) {
+          const dir = azimuthToPlanDir(ap.azimuthDeg, opts.planRotationDeg);
+          const tip = {
+            x: ap.position.x + dir.x * AP_ARROW_PX * e.px,
+            y: ap.position.y + dir.y * AP_ARROW_PX * e.px,
+          };
+          if (Math.hypot(tip.x - e.p.x, tip.y - e.p.y) <= HIT_PX * e.px) {
+            setGesture({ kind: "rotate", apId: ap.id, azimuthDeg: ap.azimuthDeg });
+            return;
+          }
+        }
         const wall = walls.find((w) => w.id === selection[0]);
         const hole = holes.find((h) => h.id === selection[0]);
         const target = wall ?? hole;
@@ -357,6 +374,15 @@ export function useWallTools(opts: {
             : points?.[gesture.index === 0 ? 1 : gesture.index - 1];
         const s = snap(e, neighbor, new Set([gesture.wallId]));
         setGesture({ ...gesture, point: s.point, snap: s.kind });
+      } else if (gesture.kind === "rotate") {
+        const ap = aps.find((a) => a.id === gesture.apId);
+        if (!ap) return;
+        const dir = { x: e.p.x - ap.position.x, y: e.p.y - ap.position.y };
+        if (dir.x === 0 && dir.y === 0) return;
+        // 1° 単位に丸める。Shift を押している間は 15° 単位
+        const step = e.shift ? 15 : 1;
+        const deg = Math.round(planDirToAzimuth(dir, opts.planRotationDeg) / step) * step;
+        setGesture({ ...gesture, azimuthDeg: deg % 360 });
       }
     };
     controller.onUp = (e) => {
@@ -392,6 +418,11 @@ export function useWallTools(opts: {
           // 選択中の壁をドラッグせずにクリックしたときは、その壁だけを選ぶ
           setSelection([gesture.clicked]);
         }
+      } else if (gesture.kind === "rotate") {
+        if (gesture.azimuthDeg !== aps.find((a) => a.id === gesture.apId)?.azimuthDeg)
+          session.mutate((ydoc) =>
+            updateAp(ydoc, floorId, gesture.apId, { azimuthDeg: gesture.azimuthDeg }),
+          );
       } else if (gesture.kind === "vertex" && gesture.target === "hole") {
         session.mutate((ydoc) => {
           const hole = readHole(ydoc, floorId, gesture.wallId);
@@ -431,6 +462,7 @@ export function useWallTools(opts: {
     move:
       gesture?.kind === "move" && gesture.moved ? { dx: gesture.dx, dy: gesture.dy } : undefined,
     vertex: gesture?.kind === "vertex" ? gesture : undefined,
+    rotate: gesture?.kind === "rotate" ? gesture : undefined,
     hover: (tool === "split" || tool === "opening") && wallHover ? wallHover : undefined,
   };
 

@@ -20,6 +20,8 @@ export type WallDrafts = {
   marquee?: Vec2[];
   move?: { dx: number; dy: number };
   vertex?: { wallId: string; target: "wall" | "hole"; index: number; point: Vec2; snap: SnapKind };
+  /** AP の回転ハンドルをドラッグ中の方位角 */
+  rotate?: { apId: string; azimuthDeg: number };
   hover?: { wallId: string; point: Vec2 };
 };
 
