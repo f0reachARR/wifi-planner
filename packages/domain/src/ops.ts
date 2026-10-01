@@ -2,6 +2,7 @@ import * as Y from "yjs";
 import type { Band } from "./band.js";
 import type { ChannelWidth } from "./channels.js";
 import type { Vec2 } from "./geometry.js";
+import { slabPresetId } from "./materials.js";
 import {
   type Ap,
   type ApModel,
@@ -16,7 +17,6 @@ import {
   type Wall,
   Wall as WallSchema,
 } from "./schema.js";
-import { slabPresetId } from "./materials.js";
 import { mergeWalls, splitWall, translateWall } from "./walls.js";
 import { FLOOR_SHAPE, fromY, setEntity } from "./ydoc.js";
 

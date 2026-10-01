@@ -25,7 +25,8 @@ for (let i = 0; i < 300; i++) {
     ],
     lossDb: 3 + rand() * 12,
     range: { bottom: 0, top: 3 },
-    openings: rand() < 0.2 ? [{ start: 0.2, end: 1.0, lossDb: 3, range: { bottom: 0, top: 2 } }] : [],
+    openings:
+      rand() < 0.2 ? [{ start: 0.2, end: 1.0, lossDb: 3, range: { bottom: 0, top: 2 } }] : [],
   });
 }
 
