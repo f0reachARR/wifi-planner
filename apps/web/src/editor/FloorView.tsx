@@ -32,6 +32,7 @@ import {
   IconPointer,
   IconRotate2,
   IconRotateClockwise2,
+  IconRuler,
   IconRuler2,
   IconScissors,
   IconSettings,
@@ -88,6 +89,7 @@ import { similarityNode } from "./overlay/similarity";
 import { PlanImportModal } from "./PlanImportModal";
 import { PhotoLayer, type PinEntry } from "./photos/PhotoLayer";
 import { PhotoPinDrawer } from "./photos/PhotoPinDrawer";
+import { ScaleModal } from "./ScaleModal";
 import { useWallTools } from "./walls/useWallTools";
 import { WallInspector } from "./walls/WallInspector";
 import { WallLayer } from "./walls/WallLayer";
@@ -101,6 +103,7 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
   const [importing, setImporting] = useState(false);
   const [editingMaterials, setEditingMaterials] = useState(false);
   const [adjustOpen, setAdjustOpen] = useState(false);
+  const [settingScale, setSettingScale] = useState(false);
   const [calibration, setCalibration] = useState<{ a: Vec2; b: Vec2 }>();
   const plan = floor.plan;
   const materials = doc?.materials ?? {};
@@ -484,6 +487,17 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                         </Button>
                       ))}
                     </Group>
+                    <Button
+                      size="compact-xs"
+                      variant="subtle"
+                      leftSection={<IconRuler size={14} />}
+                      onClick={() => {
+                        setSettingScale(true);
+                        setAdjustOpen(false);
+                      }}
+                    >
+                      スケールを数値で設定
+                    </Button>
                     <Group gap={4}>
                       <Tooltip label="左に 90 度回転">
                         <ActionIcon
@@ -633,8 +647,18 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
             <Alert color="yellow" title="スケールが未校正です" p="xs">
               <Text size="xs">
                 電波の計算にはスケールが必要です。「スケール校正」で図面上の 2
-                点を選び、その間の実際の距離を入力してください。
+                点を選び、その間の実際の距離を入力してください。縮尺がわかっていれば数値でも設定できます。
               </Text>
+              {!readOnly && (
+                <Button
+                  size="compact-xs"
+                  variant="light"
+                  mt={6}
+                  onClick={() => setSettingScale(true)}
+                >
+                  スケールを数値で設定
+                </Button>
+              )}
             </Alert>
           ) : (
             <Paper shadow="xs" p={6} withBorder>
@@ -697,6 +721,16 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
             if (calibration) update({ scale: { ...calibration, distanceM } });
             setCalibration(undefined);
             setTool("select");
+          }}
+        />
+        <ScaleModal
+          opened={settingScale}
+          plan={plan}
+          scale={floor.scale}
+          onClose={() => setSettingScale(false)}
+          onSubmit={(scale) => {
+            update({ scale });
+            setSettingScale(false);
           }}
         />
         <PlanImportModal

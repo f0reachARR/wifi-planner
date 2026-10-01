@@ -56,10 +56,15 @@ export function scaleFromRatio(opts: {
     // 長辺どうしを比べる（縦横どちらの向きでも同じ倍率になる）
     enlargement = nominal.longMm / pointsToMm(Math.max(pageWidthPt, pageHeightPt));
   }
+  return scaleFromMetersPerUnit(METERS_PER_POINT * enlargement * ratio, pageWidthPt);
+}
+
+/** 図面座標の 1 単位が何メートルかからスケールを作る。2 点はページの上端（幅いっぱい）に置く */
+export function scaleFromMetersPerUnit(metersPerUnit: number, pageWidth: number): ScaleCalibration {
   return {
     a: { x: 0, y: 0 },
-    b: { x: pageWidthPt, y: 0 },
-    distanceM: pageWidthPt * METERS_PER_POINT * enlargement * ratio,
+    b: { x: pageWidth, y: 0 },
+    distanceM: pageWidth * metersPerUnit,
   };
 }
 

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { metersPerUnit } from "./coords.js";
-import { detectPaperSize, PAPER_SIZES, ratioOfPdfScale, scaleFromRatio } from "./paper.js";
+import {
+  detectPaperSize,
+  PAPER_SIZES,
+  ratioOfPdfScale,
+  scaleFromMetersPerUnit,
+  scaleFromRatio,
+} from "./paper.js";
 
 const mmToPt = (mm: number) => (mm / 25.4) * 72;
 const A1 = PAPER_SIZES.find((p) => p.name === "A1")!;
@@ -43,4 +49,10 @@ describe("縮尺からのスケール", () => {
     expect(scale.distanceM).toBeCloseTo(84.1, 9);
     expect(ratioOfPdfScale(metersPerUnit(scale)!)).toBeCloseTo(200.24, 2);
   });
+});
+
+it("1 単位あたりのメートルからスケールを作る", () => {
+  const scale = scaleFromMetersPerUnit(0.05, 800);
+  expect(scale.b).toEqual({ x: 800, y: 0 });
+  expect(metersPerUnit(scale)).toBeCloseTo(0.05, 12);
 });

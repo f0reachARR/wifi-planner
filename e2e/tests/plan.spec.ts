@@ -106,3 +106,40 @@ test("PDF の取り込み時に縮尺でスケールを校正する", async ({ b
   await importWith("100", "A1（縮小前）");
   await expect(alice.getByText(/紙面上 1:200/)).toBeVisible();
 });
+
+test("取り込んだあとにスケールを縮尺や数値で設定する", async ({ browser }, testInfo) => {
+  mkdirSync(testInfo.outputDir, { recursive: true });
+  const pdfPath = path.join(testInfo.outputDir, "plan.pdf");
+  writeFileSync(pdfPath, (await makeSyntheticPlanPdf()).pdf);
+
+  const alice = await newUserPage(browser, ADMIN.username, ADMIN.password);
+  const project = await apiOf(alice).post<{ id: string }>("/projects", { name: "手動スケール" });
+  await alice.goto(`/projects/${project.id}`);
+  await alice.getByRole("button", { name: "追加" }).click();
+  await alice.getByRole("button", { name: "図面を取り込む" }).click();
+  await alice.getByRole("dialog").locator('input[type="file"]').setInputFiles(pdfPath);
+  await alice.getByRole("dialog").getByRole("button", { name: "取り込む", exact: true }).click();
+  await expect(alice.getByText("スケールが未校正です")).toBeVisible();
+
+  // 未校正の案内から、縮尺で設定する
+  await alice.getByRole("button", { name: "スケールを数値で設定" }).click();
+  const dialog = alice.getByRole("dialog", { name: "スケールの設定" });
+  await dialog.getByRole("textbox", { name: "縮尺", exact: true }).fill("100");
+  await dialog.getByRole("button", { name: "設定" }).click();
+  await expect(alice.getByText(/スケール：1 m ＝ 図面上 28\.3 単位.*紙面上 1:100/)).toBeVisible();
+
+  // 図面の調整から、1 m あたりの長さで設定し直す
+  await alice.getByRole("button", { name: "図面の調整" }).click();
+  await alice.getByRole("button", { name: "スケールを数値で設定" }).click();
+  await dialog.getByText("数値で指定").click();
+  await expect(dialog.getByLabel("1 m あたりの図面上の長さ")).toHaveValue("28.346 pt");
+  await dialog.getByLabel("1 m あたりの図面上の長さ").fill("50");
+  await dialog.getByRole("button", { name: "設定" }).click();
+  await expect(alice.getByText(/スケール：1 m ＝ 図面上 50\.0 単位/)).toBeVisible();
+
+  // 解除すると未校正に戻る
+  await alice.getByRole("button", { name: "図面の調整" }).click();
+  await alice.getByRole("button", { name: "スケールを数値で設定" }).click();
+  await dialog.getByRole("button", { name: "スケールを解除" }).click();
+  await expect(alice.getByText("スケールが未校正です")).toBeVisible();
+});

@@ -4,9 +4,7 @@ import {
   Image,
   Loader,
   Modal,
-  NumberInput,
   SegmentedControl,
-  Select,
   SimpleGrid,
   Stack,
   Text,
@@ -15,20 +13,14 @@ import {
 import { Dropzone } from "@mantine/dropzone";
 import { IconFileUpload } from "@tabler/icons-react";
 import type { PlanImageInfo, PlanUploadResult } from "@wifi-planner/api-contract";
-import {
-  detectPaperSize,
-  PAPER_SIZES,
-  type PlanImage,
-  pointsToMm,
-  type ScaleCalibration,
-  scaleFromRatio,
-} from "@wifi-planner/domain";
+import type { PlanImage, ScaleCalibration } from "@wifi-planner/domain";
 import { updateFloor } from "@wifi-planner/domain/ops";
 import { useState } from "react";
 import { api } from "../api/client";
 import { useSession } from "../collab/react";
 import { notifyError } from "../notify";
 import type { FloorEntry } from "./FloorPanel";
+import { EMPTY_RATIO, paperLabel, RatioScaleFields, ratioToScale } from "./RatioScaleFields";
 
 const ACCEPT = {
   "application/pdf": [".pdf"],
@@ -36,8 +28,6 @@ const ACCEPT = {
   "image/jpeg": [".jpg", ".jpeg"],
 };
 const DPI_OPTIONS = ["100", "150", "200", "300"];
-/** 元の用紙を指定しない（PDF の紙面のままの縮尺とみなす） */
-const AS_PAGE = "page";
 
 /** 図面の取り込み（FR-2.1、FR-2.2） */
 export function PlanImportModal(props: { floor: FloorEntry | undefined; onClose: () => void }) {
@@ -56,8 +46,7 @@ function ImportBody({ floor, onDone }: { floor: FloorEntry; onDone: () => void }
   const [page, setPage] = useState(1);
   const [dpi, setDpi] = useState("200");
   const [rasterizing, setRasterizing] = useState(false);
-  const [ratio, setRatio] = useState<number | string>("");
-  const [nominal, setNominal] = useState(AS_PAGE);
+  const [ratio, setRatio] = useState(EMPTY_RATIO);
 
   const apply = (info: PlanImageInfo, ratioScale?: ScaleCalibration) => {
     const current = floor.plan;
@@ -98,15 +87,7 @@ function ImportBody({ floor, onDone }: { floor: FloorEntry; onDone: () => void }
   };
 
   const pageInfo = pdf?.pages[page - 1];
-  const ratioScale =
-    pageInfo && typeof ratio === "number" && ratio > 0
-      ? scaleFromRatio({
-          ratio,
-          pageWidthPt: pageInfo.widthPt,
-          pageHeightPt: pageInfo.heightPt,
-          nominal: PAPER_SIZES.find((p) => p.name === nominal),
-        })
-      : undefined;
+  const ratioScale = pageInfo && ratioToScale(ratio, pageInfo);
 
   const rasterize = async () => {
     if (!pdf) return;
@@ -180,41 +161,13 @@ function ImportBody({ floor, onDone }: { floor: FloorEntry; onDone: () => void }
         })}
       </SimpleGrid>
       {pageInfo && (
-        <Stack gap={4}>
-          <Group gap="xs" align="flex-end">
-            <NumberInput
-              label="縮尺（任意）"
-              description="入力するとスケールを校正済みにします"
-              leftSection={<Text size="sm">1 :</Text>}
-              leftSectionWidth={36}
-              min={1}
-              decimalScale={2}
-              w={180}
-              value={ratio}
-              onChange={setRatio}
-            />
-            <Select
-              label="縮尺の基準の用紙"
-              w={200}
-              allowDeselect={false}
-              data={[
-                {
-                  value: AS_PAGE,
-                  label: `PDF の紙面（${paperLabel(pageInfo.widthPt, pageInfo.heightPt)}）`,
-                },
-                ...PAPER_SIZES.map((p) => ({ value: p.name, label: `${p.name}（縮小前）` })),
-              ]}
-              value={nominal}
-              onChange={(v) => setNominal(v ?? AS_PAGE)}
-            />
-          </Group>
-          {ratioScale && (
-            <Text size="xs" c="dimmed">
-              紙面の幅 {Math.round(pointsToMm(pageInfo.widthPt))} mm が実際の{" "}
-              {ratioScale.distanceM.toFixed(2)} m に当たります
-            </Text>
-          )}
-        </Stack>
+        <RatioScaleFields
+          page={pageInfo}
+          value={ratio}
+          onChange={setRatio}
+          ratioLabel="縮尺（任意）"
+          ratioDescription="入力するとスケールを校正済みにします"
+        />
       )}
       <Group justify="space-between">
         <Group gap="xs">
@@ -235,12 +188,4 @@ function ImportBody({ floor, onDone }: { floor: FloorEntry; onDone: () => void }
       </Group>
     </Stack>
   );
-}
-
-/** ページの寸法を「A3 横、420×297 mm」のように表す */
-function paperLabel(widthPt: number, heightPt: number): string {
-  const mm = `${Math.round(pointsToMm(widthPt))}×${Math.round(pointsToMm(heightPt))} mm`;
-  const paper = detectPaperSize(widthPt, heightPt);
-  if (!paper) return mm;
-  return `${paper.name} ${widthPt >= heightPt ? "横" : "縦"}、${mm}`;
 }
