@@ -5,12 +5,13 @@ import { useSyncExternalStore } from "react";
 import type { ComputeResponse } from "../../propagation/protocol";
 import type { HoverStore } from "./hover";
 
-/** カーソル位置での AP ごとの推定受信電力（FR-8.7） */
+/** カーソル位置での AP ごとの推定受信電力（FR-8.7）。他のフロアの AP にはフロア名を添える */
 export function HoverReadout(props: {
   store: HoverStore;
   result: Extract<ComputeResponse, { status: "ok" }>;
   transform: PlanTransform;
-  floor: Floor;
+  floors: Record<string, Floor>;
+  floorId: string;
   thresholdDbm: number;
 }) {
   const p = useSyncExternalStore(props.store.subscribe, props.store.get);
@@ -37,7 +38,10 @@ export function HoverReadout(props: {
           <Table.Tbody>
             {rows.map(({ r, v }) => (
               <Table.Tr key={`${r.apId}-${r.radioKey}`}>
-                <Table.Td>{props.floor.aps[r.apId]?.name ?? "?"}</Table.Td>
+                <Table.Td>
+                  {props.floors[r.floorId]?.aps[r.apId]?.name ?? "?"}
+                  {r.floorId !== props.floorId && `（${props.floors[r.floorId]?.name ?? "?"}）`}
+                </Table.Td>
                 <Table.Td>{r.channel}ch</Table.Td>
                 <Table.Td ta="right" fw={v >= props.thresholdDbm ? 600 : undefined}>
                   {v.toFixed(1)} dBm

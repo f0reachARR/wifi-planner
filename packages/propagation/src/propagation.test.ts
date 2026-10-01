@@ -17,7 +17,7 @@ const omni = compilePattern({ kind: "omni", gainDbi: 0 }, "2.4");
 const source = (x: number, y: number, over: Partial<RadioSource> = {}): RadioSource => ({
   x,
   y,
-  heightM: 1,
+  z: 1,
   frame: antennaFrame("wall", 0, 0),
   pattern: omni,
   txPowerDbm: 20,
@@ -28,8 +28,9 @@ const source = (x: number, y: number, over: Partial<RadioSource> = {}): RadioSou
 const FULL = { bottom: 0, top: 3 };
 
 const envWith = (walls: Parameters<typeof buildSegments>[0]): Environment => ({
-  segments: buildSegments(walls),
-  receiverHeightM: 1,
+  walls: [buildSegments(walls)],
+  slabs: [],
+  receiverZ: 1,
   pathLossExponent: 2,
   rxGainDbi: 0,
 });
@@ -50,7 +51,7 @@ describe("距離減衰", () => {
 
   it("距離は設置高さと受信高さを含めた 3 次元距離で測る", () => {
     const env = envWith([]);
-    const high = evaluatePoint(source(0, 0, { heightM: 1 + Math.sqrt(3) }), env, 1, 0);
+    const high = evaluatePoint(source(0, 0, { z: 1 + Math.sqrt(3) }), env, 1, 0);
     expect(high).toBeCloseTo(20 - pathLossDb(2, 2437, 2), 6);
   });
 });

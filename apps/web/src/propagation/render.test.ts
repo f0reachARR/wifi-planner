@@ -18,6 +18,7 @@ describe("ヒートマップの色", () => {
 
   it("AP 数と同一チャネル干渉は閾値以上で届くラジオで数え、対象の AP で絞れる", () => {
     const radio = (apId: string, values: number[], low: number): RadioField => ({
+      floorId: "f",
       apId,
       radioKey: "r",
       channel: 36,

@@ -61,8 +61,8 @@ test("フロアの位置合わせ、重ね表示、疑似 3D ビュー", async (
 
   // 1F を重ねる（FR-3.3）
   await page.getByRole("switch", { name: "1F を重ねる" }).check();
-  // ヒートマップの計算も終わっている（AP のないフロアでも「計算中」のままにならない）
-  await expect(page.getByText(/0 本のラジオを計算済み/)).toBeVisible();
+  // 2F に AP は無いが、1F の AP が床スラブを通して届く（FR-7.5、FR-7.6）
+  await expect(page.getByText(/1 本のラジオを計算済み/)).toBeVisible();
   await expect(page.getByRole("slider", { name: "1F の不透明度" })).toBeVisible();
 
   // 疑似 3D ビュー（FR-3.4〜3.6）

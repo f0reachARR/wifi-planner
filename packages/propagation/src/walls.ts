@@ -1,8 +1,8 @@
 import { type HeightRange, splitByOpeningHeight, type Vec2 } from "@wifi-planner/domain";
 
 /**
- * 伝搬計算に渡す壁。座標はフロア座標（メートル）、開口部の位置は折れ線に沿った距離（メートル）。
- * 高さの範囲は計算と同じ基準の高さ（設計書 6.1.1 節）で、下端を含み上端を含まない
+ * 伝搬計算に渡す壁。座標は計算の座標（ワールド座標、メートル）、開口部の位置は折れ線に沿った距離（メートル）。
+ * 高さの範囲は絶対の高さ（設計書 6.1.1 節）で、下端を含み上端を含まない
  */
 export type WallInput = {
   points: readonly Vec2[];
@@ -11,12 +11,18 @@ export type WallInput = {
   openings: readonly { start: number; end: number; lossDb: number; range: HeightRange }[];
 };
 
-/** 壁を、減衰量と高さの範囲が一定の線分に分けて平らな配列に並べたもの */
+/**
+ * 壁を、減衰量と高さの範囲が一定の線分に分けて平らな配列に並べたもの。
+ * フロアごとに一つ作り、集合全体の高さの範囲で、経路と高さが重ならない集合をまとめて除く（設計書 6.3 節）
+ */
 export type SegmentSet = {
   /** 線分ごとに ax, ay, bx, by, minX, minY, maxX, maxY, bottom, top の 10 要素 */
   coords: Float64Array;
   lossDb: Float32Array;
   count: number;
+  /** 集合のすべての線分の高さの範囲。線分が無ければ空（bottom > top） */
+  bottom: number;
+  top: number;
 };
 
 const STRIDE = 10;
@@ -75,7 +81,39 @@ export function buildSegments(walls: readonly WallInput[]): SegmentSet {
       offset += len;
     }
   }
-  return { coords: Float64Array.from(coords), lossDb: Float32Array.from(loss), count: loss.length };
+  let bottom = Number.POSITIVE_INFINITY;
+  let top = Number.NEGATIVE_INFINITY;
+  for (let o = 0; o < coords.length; o += STRIDE) {
+    bottom = Math.min(bottom, coords[o + 8]!);
+    top = Math.max(top, coords[o + 9]!);
+  }
+  return {
+    coords: Float64Array.from(coords),
+    lossDb: Float32Array.from(loss),
+    count: loss.length,
+    bottom,
+    top,
+  };
+}
+
+/** 複数の集合（フロアごとの壁）について wallLossDb を足したもの。高さが経路と重ならない集合は調べない */
+export function wallLossDbAll(
+  sets: readonly SegmentSet[],
+  px: number,
+  py: number,
+  pz: number,
+  qx: number,
+  qy: number,
+  qz: number,
+): number {
+  const minZ = Math.min(pz, qz);
+  const maxZ = Math.max(pz, qz);
+  let total = 0;
+  for (const set of sets) {
+    if (set.top <= minZ || set.bottom > maxZ) continue;
+    total += wallLossDb(set, px, py, pz, qx, qy, qz);
+  }
+  return total;
 }
 
 /**

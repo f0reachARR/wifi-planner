@@ -1,5 +1,7 @@
+import type { RigidTransform } from "@wifi-planner/domain";
 import { type CompiledPattern, type Frame, gainToward } from "./antenna.js";
-import { type SegmentSet, wallLossDb } from "./walls.js";
+import { type SlabLevel, slabLossDb } from "./slabs.js";
+import { type SegmentSet, wallLossDbAll } from "./walls.js";
 
 /** 格子。点 (i, j) はフロア座標 (x0 + i·step, y0 + j·step) にある。値は行優先（j が行）で並べる */
 export type GridSpec = { x0: number; y0: number; step: number; cols: number; rows: number };
@@ -17,11 +19,11 @@ export function gridForExtent(
   };
 }
 
-/** 送信側のラジオ。位置はフロア座標、高さは床から */
+/** 送信側のラジオ。位置はワールド座標、高さは絶対の高さ（床面の標高 + 設置高さ）、基底もワールド座標で表す */
 export type RadioSource = {
   x: number;
   y: number;
-  heightM: number;
+  z: number;
   frame: Frame;
   pattern: CompiledPattern;
   txPowerDbm: number;
@@ -29,8 +31,11 @@ export type RadioSource = {
 };
 
 export type Environment = {
-  segments: SegmentSet;
-  receiverHeightM: number;
+  /** フロアごとの壁区間の集合 */
+  walls: readonly SegmentSet[];
+  slabs: readonly SlabLevel[];
+  /** 受信点の絶対の高さ（受信するフロアの床面の標高 + 受信高さ） */
+  receiverZ: number;
   pathLossExponent: number;
   rxGainDbi: number;
 };
@@ -45,27 +50,44 @@ export function pathLossDb(distanceM: number, frequencyMHz: number, exponent: nu
   return fsplAt1mDb(frequencyMHz) + 10 * exponent * Math.log10(Math.max(distanceM, 1));
 }
 
-/** フロア座標 (x, y) の受信高さにおける推定受信電力（dBm） */
+/** ワールド座標 (x, y) の受信点（高さは env.receiverZ）における推定受信電力（dBm、設計書 6.1 節） */
 export function evaluatePoint(src: RadioSource, env: Environment, x: number, y: number): number {
+  const z = env.receiverZ;
   const dx = x - src.x;
   const dy = y - src.y;
-  const dz = env.receiverHeightM - src.heightM;
+  const dz = z - src.z;
   const d = Math.hypot(dx, dy, dz);
   return (
     src.txPowerDbm +
     gainToward(src.pattern, src.frame, dx, dy, dz) +
     env.rxGainDbi -
     pathLossDb(d, src.frequencyMHz, env.pathLossExponent) -
-    wallLossDb(env.segments, src.x, src.y, src.heightM, x, y, env.receiverHeightM)
+    wallLossDbAll(env.walls, src.x, src.y, src.z, x, y, z) -
+    slabLossDb(env.slabs, src.x, src.y, src.z, x, y, z)
   );
 }
 
-export function computeField(src: RadioSource, env: Environment, grid: GridSpec): Float32Array {
+/**
+ * 格子の各点の推定受信電力。格子は受信するフロアのフロア座標で置き、toWorld でワールド座標に移して計算する
+ */
+export function computeField(
+  src: RadioSource,
+  env: Environment,
+  grid: GridSpec,
+  toWorld: RigidTransform = { cos: 1, sin: 0, tx: 0, ty: 0 },
+): Float32Array {
   const out = new Float32Array(grid.cols * grid.rows);
+  const { cos, sin, tx, ty } = toWorld;
   for (let j = 0; j < grid.rows; j++) {
-    const y = grid.y0 + j * grid.step;
+    const fy = grid.y0 + j * grid.step;
     for (let i = 0; i < grid.cols; i++) {
-      out[j * grid.cols + i] = evaluatePoint(src, env, grid.x0 + i * grid.step, y);
+      const fx = grid.x0 + i * grid.step;
+      out[j * grid.cols + i] = evaluatePoint(
+        src,
+        env,
+        cos * fx - sin * fy + tx,
+        sin * fx + cos * fy + ty,
+      );
     }
   }
   return out;

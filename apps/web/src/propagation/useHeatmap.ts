@@ -53,13 +53,11 @@ export function useHeatmap(
     const timer = setTimeout(() => {
       const id = nextId++;
       latest.current = id;
-      const floor = doc.floors[floorId]!;
-      const request: ComputeRequest = {
-        id,
-        doc: { ...doc, floors: { [floorId]: floor } },
-        floorId,
-        band,
-      };
+      // 他のフロアの AP、壁、床スラブも計算に使うので全フロアを送る。写真のピンは計算に効かないので除く
+      const floors = Object.fromEntries(
+        Object.entries(doc.floors).map(([fid, f]) => [fid, { ...f, photoPins: {} }]),
+      );
+      const request: ComputeRequest = { id, doc: { ...doc, floors }, floorId, band };
       getWorker().postMessage(request);
     }, DEBOUNCE_MS);
     return () => clearTimeout(timer);

@@ -746,7 +746,8 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
               store={hoverStore}
               result={okResult}
               transform={transform}
-              floor={floor}
+              floors={doc?.floors ?? {}}
+              floorId={floor.id}
               thresholdDbm={legend.goodThresholdDbm}
             />
             <Legend
