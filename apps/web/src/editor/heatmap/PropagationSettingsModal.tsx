@@ -6,6 +6,7 @@ import {
   Group,
   Modal,
   NumberInput,
+  Select,
   Stack,
   Switch,
   Text,
@@ -15,7 +16,14 @@ import { BAND_LABELS, BANDS, type LegendStop } from "@wifi-planner/domain";
 import { updateSettings } from "@wifi-planner/domain/ops";
 import { useSession, useSessionState } from "../../collab/react";
 
-/** 伝搬計算と凡例の設定（FR-7.3、FR-7.4、FR-8.4） */
+/** 他のフロアの AP を計算に含める範囲（FR-7.8）の選択肢。値は crossFloorRange を文字列にしたもの */
+const CROSS_FLOOR_OPTIONS = [
+  { value: "all", label: "全フロア" },
+  ...[1, 2, 3].map((n) => ({ value: String(n), label: `上下 ${n} フロアまで` })),
+  { value: "0", label: "同じフロアだけ" },
+];
+
+/** 伝搬計算と凡例の設定（FR-7.3、FR-7.4、FR-7.8、FR-8.4） */
 export function PropagationSettingsModal({
   opened,
   onClose,
@@ -65,6 +73,25 @@ export function PropagationSettingsModal({
             onChange={num((v) => set({ rxGainDbi: v }))}
           />
         </Group>
+        <Select
+          label="計算に含める他のフロアの AP"
+          description="壁と床スラブは範囲によらずすべてのフロアのものを使います。位置合わせをしていないフロアは、そのフロアだけで計算します"
+          data={
+            s.crossFloorRange !== null && s.crossFloorRange > 3
+              ? [
+                  ...CROSS_FLOOR_OPTIONS,
+                  {
+                    value: String(s.crossFloorRange),
+                    label: `上下 ${s.crossFloorRange} フロアまで`,
+                  },
+                ]
+              : CROSS_FLOOR_OPTIONS
+          }
+          value={s.crossFloorRange === null ? "all" : String(s.crossFloorRange)}
+          disabled={readOnly}
+          allowDeselect={false}
+          onChange={(v) => v && set({ crossFloorRange: v === "all" ? null : Number(v) })}
+        />
         <Text size="sm" fw={600}>
           距離減衰の減衰指数
         </Text>

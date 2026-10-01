@@ -6,6 +6,7 @@ import {
   Modal,
   NavLink,
   NumberInput,
+  Select,
   Stack,
   Text,
   TextInput,
@@ -20,7 +21,7 @@ import {
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react";
-import type { Floor } from "@wifi-planner/domain";
+import { type Floor, slabMaterialOf } from "@wifi-planner/domain";
 import { addFloor, deleteFloor, reorderFloors, updateFloor } from "@wifi-planner/domain/ops";
 import { useEffect, useState } from "react";
 import { useSession, useSessionState } from "../collab/react";
@@ -169,8 +170,10 @@ function FloorSettingsModal({
   onClose: () => void;
 }) {
   const session = useSession();
+  const { doc } = useSessionState();
+  const materials = doc?.materials ?? {};
   const form = useForm({
-    initialValues: { name: "", elevationM: 0, heightM: 3 },
+    initialValues: { name: "", elevationM: 0, heightM: 3, slabMaterialId: null as string | null },
     validate: {
       name: (v) => (v.trim() ? null : "名前を入力してください"),
       heightM: (v) => (v > 0 ? null : "0 より大きい値にしてください"),
@@ -179,7 +182,12 @@ function FloorSettingsModal({
   // biome-ignore lint/correctness/useExhaustiveDependencies: 開いたときだけ初期値を入れ直す
   useEffect(() => {
     if (floor)
-      form.setValues({ name: floor.name, elevationM: floor.elevationM, heightM: floor.heightM });
+      form.setValues({
+        name: floor.name,
+        elevationM: floor.elevationM,
+        heightM: floor.heightM,
+        slabMaterialId: slabMaterialOf(materials, floor) ?? null,
+      });
   }, [floor?.id]);
 
   return (
@@ -188,7 +196,11 @@ function FloorSettingsModal({
         onSubmit={form.onSubmit((values) => {
           if (floor)
             session.mutate((ydoc) =>
-              updateFloor(ydoc, floor.id, { ...values, name: values.name.trim() }),
+              updateFloor(ydoc, floor.id, {
+                ...values,
+                name: values.name.trim(),
+                slabMaterialId: values.slabMaterialId ?? undefined,
+              }),
             );
           onClose();
         })}
@@ -207,6 +219,14 @@ function FloorSettingsModal({
             decimalScale={2}
             min={0.1}
             {...form.getInputProps("heightM")}
+          />
+          <Select
+            label="床スラブの材質"
+            description="下のフロアとの間の床の減衰に使います（吹き抜けの範囲は除く）。床を抜くには減衰 0 dB の材質を選んでください"
+            placeholder="未設定（減衰 0 dB）"
+            allowDeselect={false}
+            data={Object.entries(materials).map(([id, m]) => ({ value: id, label: m.name }))}
+            {...form.getInputProps("slabMaterialId")}
           />
           <Group justify="flex-end">
             <Button type="submit">保存</Button>
