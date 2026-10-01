@@ -10,6 +10,7 @@ import {
   sectionOrigin,
   sectionParamsFrom,
   sectionQuad,
+  snapApBasis,
   threeToPlan,
   toThree,
   wallGeometry,
@@ -242,6 +243,28 @@ describe("3D ビューでの AP と断面の操作", () => {
           expect(back.azimuthDeg).toBeCloseTo(az);
           expect(back.tiltDeg).toBeCloseTo(tilt);
         }
+  });
+
+  it("つまみで回している AP の向きを、回した方の値だけ刻みに揃える", () => {
+    const p = placements.b!;
+    for (const mount of ["ceiling", "wall"] as const) {
+      // 回している最中の向き（方位角、チルト）から、揃えた後の方位角とチルトを求める
+      const snapped = (az: number, tilt: number, kind: "azimuth" | "tilt") => {
+        const [x, y] = apBasis(p, mount, az, tilt);
+        const [sx, sy] = snapApBasis(p, mount, x, y, kind, { azimuthDeg: az, tiltDeg: tilt }, 90);
+        return apOrientationFrom(p, mount, sx, sy);
+      };
+      const az = snapped(80, 20, "azimuth");
+      expect(az.azimuthDeg).toBeCloseTo(90);
+      expect(az.tiltDeg).toBeCloseTo(20);
+      // 0° の近くでは 360° ではなく 0° に揃える
+      const zero = snapped(350, 20, "azimuth").azimuthDeg;
+      expect(Math.min(zero, 360 - zero)).toBeCloseTo(0);
+      const tilt = snapped(80, 70, "tilt");
+      expect(tilt.azimuthDeg).toBeCloseTo(80);
+      expect(tilt.tiltDeg).toBeCloseTo(90);
+      expect(snapped(80, -30, "tilt").tiltDeg).toBeCloseTo(0);
+    }
   });
 
   it("断面が通る点と向きから、断面の向きと位置を求める", () => {

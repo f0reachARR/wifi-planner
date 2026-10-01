@@ -86,8 +86,59 @@ test("AP モデルの作成、AP の配置と設定、一覧からの一括変�
   }
   await expect(table.getByLabel("AP-1 の radio0 の送信出力")).toHaveValue("20 dBm");
 
+  // 表で方位角を直接変え、設置方法とチルトをまとめて変える。設置方法のプリセットよりチルトの指定が勝つ
+  const azimuth2 = table.getByLabel("AP-2 の方位角");
+  await azimuth2.fill("180");
+  await azimuth2.blur();
+  await expect(azimuth2).toHaveValue("180°");
+  await table.getByRole("textbox", { name: "送信出力" }).first().fill("");
+  await table.getByRole("combobox", { name: "設置方法" }).click();
+  await page.getByRole("option", { name: "壁設置" }).click();
+  await table.getByRole("textbox", { name: "チルト", exact: true }).fill("15");
+  await table.getByRole("button", { name: "適用" }).click();
+  for (const name of ["AP-1", "AP-2", "AP-3"]) {
+    await expect(table.getByLabel(`${name} のチルト`)).toHaveValue("15°");
+  }
+  await expect(azimuth2).toHaveValue("180°");
+  await expect(table.getByLabel("AP-1 の方位角")).toHaveValue("90°");
+  await page.keyboard.press("Escape");
+  await expect(table).toBeHidden();
+
+  // 設置方法のボタンは、設置方法を変えてチルトを 0° に戻す（FR-6.2）
+  await click(page, 0.35, 0.4);
+  await expect(page.getByLabel("名前")).toHaveValue("AP-1");
+  const wallButton = page.getByRole("button", { name: "壁設置" });
+  const ceilingButton = page.getByRole("button", { name: "天井設置" });
+  await expect(wallButton).toHaveAttribute("aria-pressed", "true");
+  await ceilingButton.click();
+  await expect(ceilingButton).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByLabel("チルト")).toHaveValue("0°");
+  await expect(page.getByLabel("方位角")).toHaveValue("90°");
+
+  // 置くときの初期値を指定する（FR-6.1）
+  await tool(page, "AP");
+  await page.getByLabel("置く AP の設置高さ").fill("3");
+  await page.getByRole("radiogroup", { name: "置く AP の設置方法" }).getByText("壁設置").click();
+  await page.getByLabel("置く AP の方位角").fill("45");
+  await page.getByLabel("置く AP のチルト").fill("10");
+  await page.getByLabel("置く AP のチルト").blur();
+  await click(page, 0.5, 0.7);
+  await expect(page.getByLabel("名前")).toHaveValue("AP-4");
+  await expect(page.getByLabel("設置高さ", { exact: true })).toHaveValue("3 m");
+  await expect(page.getByLabel("方位角", { exact: true })).toHaveValue("45°");
+  await expect(page.getByLabel("チルト", { exact: true })).toHaveValue("10°");
+  await expect(wallButton).toHaveAttribute("aria-pressed", "true");
+
+  // 初期値は表示を切り替えて 2D の画面を作り直しても残る
+  await page.getByText("3D", { exact: true }).click();
+  await page.getByText("2D（編集）", { exact: true }).click();
+  await tool(page, "AP");
+  await expect(page.getByRole("combobox", { name: "置く AP モデル" })).toHaveValue("テスト AP");
+  await expect(page.getByLabel("置く AP の設置高さ")).toHaveValue("3 m");
+  await expect(page.getByLabel("置く AP の方位角")).toHaveValue("45°");
+  await expect(page.getByLabel("置く AP のチルト")).toHaveValue("10°");
+
   if (process.env.SCREENSHOT_DIR) {
-    await page.keyboard.press("Escape");
     await page.screenshot({ path: `${process.env.SCREENSHOT_DIR}/aps.png` });
   }
 });

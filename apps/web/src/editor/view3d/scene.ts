@@ -87,6 +87,29 @@ export function apOrientationFrom(
   };
 }
 
+/** 3D ビューのつまみで回すときに揃える角度の刻み（度） */
+export const ROTATION_SNAP_DEG = 90;
+
+/**
+ * つまみで回している AP の基底を、回した方の値（方位角かチルト）を stepDeg の倍数に揃えた向きにする。
+ * 揃えるのは回し始めからの角度ではなく値そのもので、もう一方の値は current のまま保つ。チルトは ±90° に収める
+ */
+export function snapApBasis(
+  placement: FloorPlacement,
+  mount: MountType,
+  x: Vec3,
+  y: Vec3,
+  kind: "azimuth" | "tilt",
+  current: { azimuthDeg: number; tiltDeg: number },
+  stepDeg: number,
+): [Vec3, Vec3, Vec3] {
+  const o = apOrientationFrom(placement, mount, x, y);
+  const snap = (deg: number) => Math.round(deg / stepDeg) * stepDeg;
+  return kind === "azimuth"
+    ? apBasis(placement, mount, normalizeDeg(snap(o.azimuthDeg), 360), current.tiltDeg)
+    : apBasis(placement, mount, current.azimuthDeg, Math.min(90, Math.max(-90, snap(o.tiltDeg))));
+}
+
 /** 断面の直線が通る点のうち、建物の中心に最も近いもの（ワールド座標）。sectionGrid の格子の原点と同じ */
 export function sectionOrigin(bounds: SectionBounds, params: SectionParams): Vec2 {
   const a = (params.angleDeg * Math.PI) / 180;

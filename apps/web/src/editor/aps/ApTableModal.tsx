@@ -18,13 +18,20 @@ import {
   type Band,
   type ChannelWidth,
   channelWidths,
+  type MountType,
   type RadioConfig,
 } from "@wifi-planner/domain";
 import { updateAp, updateRadio } from "@wifi-planner/domain/ops";
 import { useState } from "react";
 import { useSession, useSessionState } from "../../collab/react";
 import { sortedFloors } from "../FloorPanel";
-import { channelOptions, fitWidth } from "./ApInspector";
+import {
+  channelOptions,
+  fitWidth,
+  MOUNT_OPTIONS,
+  mountPreset,
+  normalizeAzimuth,
+} from "./ApInspector";
 
 type Row = { floorId: string; floorName: string; apId: string };
 
@@ -75,6 +82,8 @@ export function ApTableModal({ opened, onClose }: { opened: boolean; onClose: ()
                 <Table.Th>フロア</Table.Th>
                 <Table.Th>モデル</Table.Th>
                 <Table.Th w={110}>設置高さ</Table.Th>
+                <Table.Th w={100}>方位角</Table.Th>
+                <Table.Th w={100}>チルト</Table.Th>
                 {BANDS.map((b) => (
                   <Table.Th key={b}>{BAND_LABELS[b]}</Table.Th>
                 ))}
@@ -107,6 +116,45 @@ export function ApTableModal({ opened, onClose }: { opened: boolean; onClose: ()
                           typeof v === "number" &&
                           session.mutate(
                             (ydoc) => updateAp(ydoc, row.floorId, row.apId, { heightM: v }),
+                            { coalesce: true },
+                          )
+                        }
+                      />
+                    </Table.Td>
+                    <Table.Td>
+                      <NumberInput
+                        size="xs"
+                        aria-label={`${ap.name} の方位角`}
+                        suffix="°"
+                        decimalScale={1}
+                        value={ap.azimuthDeg}
+                        disabled={readOnly}
+                        onChange={(v) =>
+                          typeof v === "number" &&
+                          session.mutate(
+                            (ydoc) =>
+                              updateAp(ydoc, row.floorId, row.apId, {
+                                azimuthDeg: normalizeAzimuth(v),
+                              }),
+                            { coalesce: true },
+                          )
+                        }
+                      />
+                    </Table.Td>
+                    <Table.Td>
+                      <NumberInput
+                        size="xs"
+                        aria-label={`${ap.name} のチルト`}
+                        suffix="°"
+                        decimalScale={1}
+                        min={-90}
+                        max={90}
+                        value={ap.tiltDeg}
+                        disabled={readOnly}
+                        onChange={(v) =>
+                          typeof v === "number" &&
+                          session.mutate(
+                            (ydoc) => updateAp(ydoc, row.floorId, row.apId, { tiltDeg: v }),
                             { coalesce: true },
                           )
                         }
@@ -214,6 +262,9 @@ function BulkEditor({ rows }: { rows: Row[] }) {
   const session = useSession();
   const { doc } = useSessionState();
   const [height, setHeight] = useState<number | string>("");
+  const [mount, setMount] = useState<string | null>(null);
+  const [azimuth, setAzimuth] = useState<number | string>("");
+  const [tilt, setTilt] = useState<number | string>("");
   const [band, setBand] = useState<Band>("5");
   const [enabled, setEnabled] = useState<string | null>(null);
   const [channel, setChannel] = useState<string | null>(null);
@@ -225,7 +276,13 @@ function BulkEditor({ rows }: { rows: Row[] }) {
         const ap = doc?.floors[row.floorId]?.aps[row.apId];
         if (!ap) continue;
         const model = doc?.apModels[ap.modelId];
-        if (typeof height === "number") updateAp(ydoc, row.floorId, row.apId, { heightM: height });
+        // 設置方法のプリセットはチルトを 0° に戻すので、チルトの指定より先に書く
+        updateAp(ydoc, row.floorId, row.apId, {
+          ...(typeof height === "number" ? { heightM: height } : {}),
+          ...(mount ? mountPreset(mount as MountType) : {}),
+          ...(typeof azimuth === "number" ? { azimuthDeg: normalizeAzimuth(azimuth) } : {}),
+          ...(typeof tilt === "number" ? { tiltDeg: tilt } : {}),
+        });
         for (const r of ap.radios.filter((x) => x.band === band)) {
           const patch: Partial<RadioConfig> = {};
           if (enabled) patch.enabled = enabled === "on";
@@ -255,6 +312,32 @@ function BulkEditor({ rows }: { rows: Row[] }) {
           decimalScale={2}
           value={height}
           onChange={setHeight}
+        />
+        <Select
+          label="設置方法"
+          w={110}
+          data={MOUNT_OPTIONS}
+          value={mount}
+          onChange={setMount}
+          clearable
+        />
+        <NumberInput
+          label="方位角"
+          suffix="°"
+          w={90}
+          decimalScale={1}
+          value={azimuth}
+          onChange={setAzimuth}
+        />
+        <NumberInput
+          label="チルト"
+          suffix="°"
+          w={90}
+          decimalScale={1}
+          min={-90}
+          max={90}
+          value={tilt}
+          onChange={setTilt}
         />
         <Select
           label="帯域"

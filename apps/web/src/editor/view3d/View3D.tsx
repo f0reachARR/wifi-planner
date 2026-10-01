@@ -43,9 +43,11 @@ import {
   heatmapQuad,
   planQuad,
   planToWorld,
+  ROTATION_SNAP_DEG,
   sectionOrigin,
   sectionParamsFrom,
   sectionQuad,
+  snapApBasis,
   threeToPlan,
   toThree,
   type Vec3,
@@ -75,6 +77,8 @@ export function View3D() {
   const editable = !session.readOnly;
   const [selection, setSelection] = useState<Selection>();
   const [gizmo, setGizmo] = useState<GizmoMode>("translate");
+  const [snapRotation, setSnapRotation] = useState(true);
+  const rotationSnapDeg = snapRotation ? ROTATION_SNAP_DEG : undefined;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setSelection(undefined);
@@ -178,6 +182,7 @@ export function View3D() {
               }
               onSelectAp={(apId) => setSelection({ kind: "ap", floorId: f.id, apId })}
               gizmo={editable ? gizmo : undefined}
+              rotationSnapDeg={rotationSnapDeg}
             />
           ))}
           {section.on && sectionResult.result?.status === "ok" && (
@@ -195,6 +200,7 @@ export function View3D() {
               params={sectionParams}
               heightScale={heightScale}
               gizmo={sectionSelected ? (gizmo === "tilt" ? "azimuth" : gizmo) : undefined}
+              rotationSnapDeg={rotationSnapDeg}
               onSelect={() => setSelection({ kind: "section" })}
               onChange={(p) => setSection((s) => ({ ...s, ...p }))}
             />
@@ -230,6 +236,14 @@ export function View3D() {
                 解除
               </Button>
             </Group>
+          )}
+          {(selectedAp || sectionSelected) && gizmo !== "translate" && (
+            <Switch
+              size="xs"
+              label={`${ROTATION_SNAP_DEG}° 単位で回す`}
+              checked={snapRotation}
+              onChange={(e) => setSnapRotation(e.currentTarget.checked)}
+            />
           )}
           <SegmentedControl
             size="xs"
@@ -350,6 +364,8 @@ function FloorMeshes(props: {
   onSelectAp: (apId: string) => void;
   /** 選んだ AP に出すつまみ。編集できないときは undefined */
   gizmo: GizmoMode | undefined;
+  /** 回すときに値を揃える刻み（度）。揃えないときは undefined */
+  rotationSnapDeg: number | undefined;
 }) {
   const { floor, placement, layers, heightScale } = props;
   /** 表示上の高さ。見やすさのために高さ方向だけを引き伸ばす */
@@ -472,13 +488,22 @@ function FloorMeshes(props: {
             selected={props.selectedApId === id}
             gizmo={props.selectedApId === id ? props.gizmo : undefined}
             onSelect={() => props.onSelectAp(id)}
+            onDrag={(obj) => {
+              const gizmo = props.gizmo;
+              const step = props.rotationSnapDeg;
+              if (!step || !gizmo || gizmo === "translate") return;
+              // 回し始めからの角度ではなく、方位角やチルトの値そのものを刻みに揃える
+              const [x, y] = localAxes(obj);
+              obj.quaternion.fromArray(
+                basisQuat(snapApBasis(placement, ap.mount, x, y, gizmo, ap, step)),
+              );
+            }}
             onCommit={(obj) => {
               const patch: Partial<Ap> = {};
               if (props.gizmo !== "translate") {
                 // 方位角のつまみは鉛直な軸、チルトのつまみはアンテナの局所 y 軸のまわりだけを回すので、回した方の値だけを書く
-                const axis = (x: number, y: number, z: number) =>
-                  new THREE.Vector3(x, y, z).applyQuaternion(obj.quaternion).toArray();
-                const o = apOrientationFrom(placement, ap.mount, axis(1, 0, 0), axis(0, 1, 0));
+                const [x, y] = localAxes(obj);
+                const o = apOrientationFrom(placement, ap.mount, x, y);
                 const round = (v: number) => Math.round(v * 10) / 10;
                 if (props.gizmo === "azimuth") {
                   const azimuthDeg = round(o.azimuthDeg) % 360;
@@ -527,6 +552,12 @@ const basisQuat = ([x, y, z]: [Vec3, Vec3, Vec3]): Quat => {
   return new THREE.Quaternion().setFromRotationMatrix(m).toArray() as Quat;
 };
 
+/** 物体の局所座標の x 軸と y 軸の向き（three.js の座標） */
+const localAxes = (obj: THREE.Object3D): [Vec3, Vec3] => [
+  new THREE.Vector3(1, 0, 0).applyQuaternion(obj.quaternion).toArray(),
+  new THREE.Vector3(0, 1, 0).applyQuaternion(obj.quaternion).toArray(),
+];
+
 /** 鉛直な軸のまわりの回転 */
 const yawQuat = (yaw: number): Quat =>
   new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw).toArray() as Quat;
@@ -555,6 +586,8 @@ function Gizmo(props: {
   axes: { x: boolean; y: boolean; z: boolean };
   space: "world" | "local";
   size: number;
+  /** ドラッグで物体の置き方が変わるたびに呼ぶ。スナップのために置き方を直してよい */
+  onDrag?: (obj: THREE.Object3D) => void;
   onCommit: (obj: THREE.Object3D) => boolean;
   reset: () => void;
 }) {
@@ -567,6 +600,10 @@ function Gizmo(props: {
       showY={props.axes.y}
       showZ={props.axes.z}
       size={props.size}
+      onObjectChange={() => {
+        const obj = props.target.current;
+        if (obj) props.onDrag?.(obj);
+      }}
       onMouseUp={() => {
         const obj = props.target.current;
         if (obj && !props.onCommit(obj)) props.reset();
@@ -589,6 +626,7 @@ function ApObject(props: {
   selected: boolean;
   gizmo: GizmoMode | undefined;
   onSelect: () => void;
+  onDrag: (obj: THREE.Object3D) => void;
   onCommit: (obj: THREE.Object3D) => boolean;
 }) {
   const ref = useRef<THREE.Group>(null!);
@@ -624,6 +662,7 @@ function ApObject(props: {
               : // チルトはアンテナの局所 y 軸のまわりの回転（antennaFrame）
                 { mode: "rotate", space: "local", axes: { x: false, y: true, z: false } })}
           size={0.7}
+          onDrag={props.onDrag}
           onCommit={props.onCommit}
           reset={reset}
         />
@@ -641,6 +680,7 @@ function SectionHandle(props: {
   params: SectionParams;
   heightScale: number;
   gizmo: GizmoMode | undefined;
+  rotationSnapDeg: number | undefined;
   onSelect: () => void;
   onChange: (p: SectionParams) => void;
 }) {
@@ -695,6 +735,14 @@ function SectionHandle(props: {
             : { mode: "rotate", space: "world", axes: { x: false, y: true, z: false } })}
           size={0.9}
           reset={reset}
+          onDrag={(obj) => {
+            const step = props.rotationSnapDeg;
+            if (!step || props.gizmo === "translate") return;
+            // 回し始めからの角度ではなく、断面の向きそのものを刻みに揃える
+            const dir = new THREE.Vector3(1, 0, 0).applyQuaternion(obj.quaternion);
+            const deg = (Math.atan2(-dir.z, dir.x) * 180) / Math.PI;
+            obj.quaternion.fromArray(yawQuat((Math.round(deg / step) * step * Math.PI) / 180));
+          }}
           onCommit={(obj) => {
             const dir = new THREE.Vector3(1, 0, 0).applyQuaternion(obj.quaternion);
             // 向きはスライダーと同じ 1° 刻みに揃えてから位置を求める。後で丸めると、180° の近くで 0° に回り込んだときに位置の符号が逆になる
