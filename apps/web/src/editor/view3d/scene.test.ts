@@ -1,6 +1,6 @@
 import { floorPlacements } from "@wifi-planner/domain";
 import { describe, expect, it } from "vitest";
-import { clipToRect, heatmapQuad, planQuad, toThree, wallGeometry } from "./scene";
+import { clipToRect, heatmapQuad, planQuad, sectionQuad, toThree, wallGeometry } from "./scene";
 
 const plan = {
   sourceSha256: "s",
@@ -47,6 +47,17 @@ describe("疑似 3D ビューの形", () => {
     expect(Array.from(q.uvs.slice(0, 2))).toEqual([0, 1]);
     // 図面の右下（x = 10 m、図面の下向き 5 m）は、フロア座標で y = -5、three.js で z = 5
     expect(Array.from(q.positions.slice(6, 9))).toEqual([10, 3, 5]);
+  });
+
+  it("縦の断面は鉛直な四角形で、高さの倍率をかけ、テクセルの中心が格子の端の点に重なる", () => {
+    const grid = { ox: 0, oy: 0, ux: 0, uy: 1, s0: 2, z0: 0, step: 0.5, cols: 5, rows: 3 };
+    const q = sectionQuad(grid, 2);
+    // 左上は (x, y) = (0, 2)、高さ 1 m × 2 倍。three.js では (0, 2, -2)
+    expect(Array.from(q.positions.slice(0, 3))).toEqual([0, 2, -2]);
+    // 右下（3 番目の頂点）は (0, 4)、高さ 0
+    expect(Array.from(q.positions.slice(6, 9))).toEqual([0, 0, -4]);
+    expect(q.uvs[0]).toBeCloseTo(0.1, 6);
+    expect(q.uvs[1]).toBeCloseTo(1 - 1 / 6, 6);
   });
 
   it("ヒートマップの格子の端の点は、格子の間隔の半分だけ外にある", () => {

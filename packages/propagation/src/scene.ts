@@ -55,7 +55,7 @@ export type FloorScene =
   | { status: "noPlan" }
   | { status: "uncalibrated" };
 
-type ProjectFloor = {
+export type ProjectFloor = {
   id: string;
   floor: Floor;
   /** order の順に並べたときの位置。フロアをまたぐ範囲（FR-7.8）の距離に使う */
@@ -103,7 +103,7 @@ function wallInputs(
 }
 
 /** 計算範囲（トリミング範囲、なければ図面全体、設計書 6.2 節）の図面座標の 4 隅 */
-function planCorners(floor: Floor) {
+export function planCorners(floor: Floor) {
   const plan = floor.plan!;
   const rect = plan.crop ?? {
     x: 0,

@@ -106,6 +106,15 @@ test("フロアの位置合わせ、重ね表示、疑似 3D ビュー", async (
   await expect(page.getByLabel("表示中のフロア")).toHaveText(
     "表示中のフロア：1F（床 0 m）、2F（床 3 m）",
   );
+  // 縦の断面（FR-3.9）。1F の AP の電波を、2F まで断面の上で計算する
+  await page.getByRole("switch", { name: "縦の断面" }).check();
+  await expect(page.getByLabel("断面の状態")).toHaveText(/^断面：\d+×\d+ 点、1 本のラジオ$/);
+  await page.getByRole("button", { name: "90°" }).click();
+  await expect(page.getByRole("slider", { name: "断面の向き" })).toHaveAttribute(
+    "aria-valuenow",
+    "90",
+  );
+  await expect(page.getByLabel("断面の状態")).toHaveText(/^断面：\d+×\d+ 点、1 本のラジオ$/);
   if (process.env.SCREENSHOT_DIR) {
     // テクスチャの読み込みを待ってから撮る
     await page.waitForTimeout(1500);

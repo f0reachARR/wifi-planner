@@ -11,7 +11,7 @@ import {
   type Vec2,
   wallHeightRange,
 } from "@wifi-planner/domain";
-import type { GridSpec } from "@wifi-planner/propagation";
+import type { GridSpec, SectionGrid } from "@wifi-planner/propagation";
 import { ShapeUtils, Vector2 } from "three";
 
 // 疑似 3D ビューの形（FR-3.4〜3.6）。ワールド座標の (x, y) と高さ h を、three.js の y 軸を上とする座標 (x, h, -y) に置く。
@@ -155,6 +155,30 @@ export function heatmapQuad(
     holes.map((hole) => hole.map((p) => placement.plan.toFloor(p))),
     (p) => toThree(applyRigid(placement.toWorld, p), h),
     (p) => ({ x: (p.x - x0) / width, y: (p.y - y0) / height }),
+  );
+}
+
+/**
+ * 縦の断面（FR-3.9）を貼る鉛直な四角形。格子の端の点を四角形の端に置き、テクセルの中心が格子の点に重なるよう UV を内側に寄せる。
+ * データのテクスチャは上下を反転しないので、格子の行 0（最も低い点）を v の小さい側にする
+ */
+export function sectionQuad(grid: SectionGrid, heightScale = 1) {
+  const s1 = grid.s0 + (grid.cols - 1) * grid.step;
+  const z1 = grid.z0 + (grid.rows - 1) * grid.step;
+  const at = (s: number, z: number): Vec3 =>
+    toThree({ x: grid.ox + grid.ux * s, y: grid.oy + grid.uy * s }, z * heightScale);
+  const u0 = 0.5 / grid.cols;
+  const u1 = 1 - u0;
+  const v0 = 0.5 / grid.rows;
+  const v1 = 1 - v0;
+  return quad(
+    [at(grid.s0, z1), at(s1, z1), at(s1, grid.z0), at(grid.s0, grid.z0)],
+    [
+      { x: u0, y: v1 },
+      { x: u1, y: v1 },
+      { x: u1, y: v0 },
+      { x: u0, y: v0 },
+    ],
   );
 }
 

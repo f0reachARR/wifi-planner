@@ -52,7 +52,17 @@ export function pathLossDb(distanceM: number, frequencyMHz: number, exponent: nu
 
 /** ワールド座標 (x, y) の受信点（高さは env.receiverZ）における推定受信電力（dBm、設計書 6.1 節） */
 export function evaluatePoint(src: RadioSource, env: Environment, x: number, y: number): number {
-  const z = env.receiverZ;
+  return evaluatePointAt(src, env, x, y, env.receiverZ);
+}
+
+/** ワールド座標 (x, y)、絶対の高さ z の点における推定受信電力（dBm）。縦の断面（設計書 6.5 節）で使う */
+export function evaluatePointAt(
+  src: RadioSource,
+  env: Environment,
+  x: number,
+  y: number,
+  z: number,
+): number {
   const dx = x - src.x;
   const dy = y - src.y;
   const dz = z - src.z;
