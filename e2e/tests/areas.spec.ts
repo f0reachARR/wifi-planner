@@ -3,7 +3,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { makeSyntheticPlanPdf } from "@wifi-planner/wall-extraction/fixtures";
 import { ADMIN } from "../playwright.config";
-import { addFloorWithPlan, apiOf, click, drag, newUserPage, tool } from "./helpers";
+import { addFloorWithPlan, apiOf, click, drag, newUserPage, sidebarTab, tool } from "./helpers";
 
 test("エリアの人数と、エリア内の AP 1 台あたりの人数", async ({ browser }, testInfo) => {
   mkdirSync(testInfo.outputDir, { recursive: true });
@@ -47,6 +47,8 @@ test("エリアの人数と、エリア内の AP 1 台あたりの人数", async
   await page.getByRole("option", { name: "エリア用 AP" }).click();
   await click(page, 0.4, 0.5);
   await click(page, 0.6, 0.5);
+  // 置いた AP を選ぶと AP のタブに切り替わるので、エリアのタブに戻す
+  await sidebarTab(page, "エリア");
   const row = page.getByRole("row", { name: /エリア 1/ });
   const cells = row.getByRole("cell");
   await expect(cells.nth(1)).toHaveText("40");
@@ -56,6 +58,7 @@ test("エリアの人数と、エリア内の AP 1 台あたりの人数", async
   // 1 台をエリアの外に動かすと 40 人/AP になり、目安の 30 人を超えたことを示す
   await tool(page, "選択");
   await drag(page, [0.6, 0.5], [0.85, 0.5]);
+  await sidebarTab(page, "エリア");
   await expect(cells.nth(2)).toHaveText("1");
   await expect(cells.nth(3)).toHaveText("40.0");
   // 一覧の名前のボタンから、キーボードでもエリアを選べる

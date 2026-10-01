@@ -85,6 +85,11 @@ export async function tool(page: Page, name: string) {
     .click();
 }
 
+/** 右のパネルのタブを開く。図面の上で要素を選ぶと、その種類のタブに切り替わる。警告があるタブは名前に「警告あり」が付く */
+export async function sidebarTab(page: Page, name: "全体" | "壁" | "AP" | "エリア") {
+  await page.getByRole("tab", { name: new RegExp(`^${name}( 警告あり)?$`) }).click();
+}
+
 /** 表示中のフロアの壁と AP をすべて選ぶ */
 export async function selectAll(page: Page) {
   await page.getByLabel("図面").focus();

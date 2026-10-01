@@ -3,7 +3,7 @@ import path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import { makeSyntheticPlanPdf } from "@wifi-planner/wall-extraction/fixtures";
 import { ADMIN } from "../playwright.config";
-import { addFloorWithPlan, apiOf, at, click, newUserPage, tool } from "./helpers";
+import { addFloorWithPlan, apiOf, at, click, newUserPage, sidebarTab, tool } from "./helpers";
 
 /** カーソル位置の読み取りの、最も強い AP の値（dBm） */
 async function readoutAt(page: Page, fx: number, fy: number): Promise<number> {
@@ -86,7 +86,8 @@ test("ヒートマップの計算、表示、壁の減衰、読み取り", async
   const left1 = await readoutAt(page, 0.35, 0.5);
   expect(Math.abs(left1 - left0)).toBeLessThan(1);
 
-  // 表示の切り替え（FR-8.5、FR-8.6）
+  // 表示の切り替え（FR-8.5、FR-8.6）。描いた壁を選んで壁のタブに切り替わっているので、全体のタブに戻す
+  await sidebarTab(page, "全体");
   await page.getByRole("combobox", { name: "表示" }).click();
   await page.getByRole("option", { name: "AP 数" }).click();
   await expect(page.getByText("1 台", { exact: true })).toBeVisible();

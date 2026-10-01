@@ -4,7 +4,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { makeSyntheticPlanPdf } from "@wifi-planner/wall-extraction/fixtures";
 import sharp from "sharp";
 import { ADMIN } from "../playwright.config";
-import { addFloorWithPlan, apiOf, click, newUserPage, tool } from "./helpers";
+import { addFloorWithPlan, apiOf, click, newUserPage, sidebarTab, tool } from "./helpers";
 
 /** AP の球の色（View3D の ApObject）、断面の枠の色（SectionHandle）、つまみの y 軸と z 軸の色（three.js の TransformControls） */
 const AP_COLOR = [0xe8, 0x59, 0x0c] as const;
@@ -83,6 +83,7 @@ test("フロアの位置合わせ、重ね表示、疑似 3D ビュー", async (
   await page.getByRole("combobox", { name: "置く AP モデル" }).click();
   await page.getByRole("option", { name: "3D 用 AP" }).click();
   await click(page, 0.5, 0.5);
+  await sidebarTab(page, "全体");
   await expect(page.getByText("このフロアが位置合わせの基準です", { exact: false })).toBeVisible();
 
   // 2F：同じ図面を取り込み、2F と 1F の図面を並べて同じ 2 点を指定する（FR-3.2）
@@ -113,7 +114,8 @@ test("フロアの位置合わせ、重ね表示、疑似 3D ビュー", async (
   await page.keyboard.press("Enter");
   await expect(page.getByText(/吹き抜け 1 個を選択中（[\d.]+ m²）/)).toBeVisible();
 
-  // 1F を重ねる（FR-3.3）
+  // 1F を重ねる（FR-3.3）。開いていたタブはフロアを切り替えても保つが、吹き抜けを選んで壁のタブに切り替わっている
+  await sidebarTab(page, "全体");
   await page.getByRole("switch", { name: "1F を重ねる" }).check();
   // 2F に AP は無いが、1F の AP が床スラブを通して届く（FR-7.5、FR-7.6）
   await expect(page.getByText(/1 本のラジオを計算済み/)).toBeVisible();

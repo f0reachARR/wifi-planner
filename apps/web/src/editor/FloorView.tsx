@@ -16,6 +16,7 @@ import {
   Slider,
   Stack,
   Switch,
+  Tabs,
   Text,
   Tooltip,
 } from "@mantine/core";
@@ -23,6 +24,7 @@ import { useHotkeys } from "@mantine/hooks";
 import {
   IconAccessPoint,
   IconAdjustments,
+  IconAlertTriangle,
   IconCamera,
   IconCrop,
   IconDoor,
@@ -70,7 +72,7 @@ import {
   updateFloor,
 } from "@wifi-planner/domain/ops";
 import type { SceneNotes } from "@wifi-planner/propagation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useApModels } from "../api/hooks";
 import { useSession, useSessionState } from "../collab/react";
 import { notifyError } from "../notify";
@@ -95,6 +97,7 @@ import { HoverReadout } from "./heatmap/HoverReadout";
 import { createHoverStore } from "./heatmap/hover";
 import { Legend } from "./heatmap/Legend";
 import { PropagationSettingsModal } from "./heatmap/PropagationSettingsModal";
+import { ALL_LAYERS_VISIBLE, LayerMenu, type LayerVisibility, TOOL_LAYER } from "./layers";
 import { MaterialsModal } from "./MaterialsModal";
 import { OverlayFloor } from "./overlay/OverlayLayer";
 import { similarityNode } from "./overlay/similarity";
@@ -128,15 +131,33 @@ export const INITIAL_AP_PLACEMENT: ApPlacementDefaults = {
   tiltDeg: 0,
 };
 
+/** 右のパネルのタブ */
+export type SidebarTab = "general" | "walls" | "aps" | "areas";
+
+/** 2D ビューの表示の設定（FR-8.9）。フロアを切り替えても保つよう、編集画面の側で持つ */
+export type FloorViewPrefs = {
+  layers: LayerVisibility;
+  tab: SidebarTab;
+};
+
+export const INITIAL_FLOOR_VIEW_PREFS: FloorViewPrefs = {
+  layers: ALL_LAYERS_VISIBLE,
+  tab: "general",
+};
+
 /** 1 フロアの 2D 編集画面 */
 export function FloorView({
   floor,
   apPlacement,
   onApPlacementChange,
+  prefs,
+  onPrefsChange,
 }: {
   floor: FloorEntry;
   apPlacement: ApPlacementDefaults;
   onApPlacementChange: (patch: Partial<ApPlacementDefaults>) => void;
+  prefs: FloorViewPrefs;
+  onPrefsChange: (update: (prefs: FloorViewPrefs) => FloorViewPrefs) => void;
 }) {
   const session = useSession();
   const { doc, peers } = useSessionState();
@@ -148,6 +169,14 @@ export function FloorView({
   const [settingScale, setSettingScale] = useState(false);
   const [aligning, setAligning] = useState(false);
   const [calibration, setCalibration] = useState<{ a: Vec2; b: Vec2 }>();
+  const { layers, tab } = prefs;
+  const showLayers = (patch: Partial<LayerVisibility>) => {
+    // 使っている道具で作る種別を隠したら、見えない要素を作らないよう選択の道具に戻す
+    const kind = TOOL_LAYER[tool];
+    if (kind && patch[kind] === false) setTool("select");
+    onPrefsChange((p) => ({ ...p, layers: { ...p.layers, ...patch } }));
+  };
+  const setTab = (tab: SidebarTab) => onPrefsChange((p) => ({ ...p, tab }));
   const plan = floor.plan;
   const materials = doc?.materials ?? {};
   const materialIds = useMemo(() => new Set(Object.keys(materials)), [materials]);
@@ -215,6 +244,7 @@ export function FloorView({
   const [showGuides, setShowGuides] = useState(false);
   const [snapOpen, setSnapOpen] = useState(false);
   const snapGuides = useSnapGuides(session.projectId, floor.plan, snapToGuides);
+  const shownWalls = layers.walls ? walls : [];
   const wallTools = useWallTools({
     floorId: floor.id,
     walls,
@@ -227,11 +257,12 @@ export function FloorView({
     materialIds,
     guides: snapGuides.guides,
     onPlaceAp: placeAp,
+    shown: layers,
   });
   // 電波の表示（FR-8.1〜8.8）
   const [band, setBand] = useState<Band>("5");
   const [mode, setMode] = useState<HeatmapMode>("rssi");
-  const [showHeatmap, setShowHeatmap] = useState(true);
+  const showHeatmap = layers.heatmap;
   const [apFilter, setApFilter] = useState<string[]>([]);
   const [editingPropagation, setEditingPropagation] = useState(false);
   const [hoverStore] = useState(createHoverStore);
@@ -327,6 +358,38 @@ export function FloorView({
   const drawingTool = tool === "wall" || tool === "hole" || tool === "area";
   const floorPeers = peers.filter((p) => p.floorId === floor.id);
 
+  // 隠した種別の要素を作る道具を選んだら、その種別を表示に戻す（FR-8.9）
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 道具を切り替えたときだけ見る
+  useEffect(() => {
+    const kind = TOOL_LAYER[tool];
+    if (kind && !layers[kind]) showLayers({ [kind]: true });
+  }, [tool]);
+
+  // 図面の上で選んだ要素がすべて同じタブの種類なら、そのタブに切り替えて設定を見せる。選択を外したときは切り替えない
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 選択が変わったときだけ見る
+  useEffect(() => {
+    const tabs = new Set<SidebarTab>(
+      wallTools.selection.flatMap((id): SidebarTab[] =>
+        floor.walls[id] || floor.holes[id]
+          ? ["walls"]
+          : floor.aps[id]
+            ? ["aps"]
+            : floor.areas[id]
+              ? ["areas"]
+              : [],
+      ),
+    );
+    const [only] = tabs;
+    if (tabs.size === 1 && only !== tab) setTab(only!);
+  }, [wallTools.selection]);
+
+  /** 一覧や警告から要素を選ぶ。隠した種別なら表示に戻してから選ぶ */
+  const selectShowing = (ids: string[], kind: "walls" | "areas") => {
+    if (!layers[kind]) showLayers({ [kind]: true });
+    setTool("select");
+    wallTools.setSelection(ids);
+  };
+
   useHotkeys([
     ["Delete", () => !readOnly && wallTools.deleteSelection()],
     [
@@ -356,10 +419,10 @@ export function FloorView({
       () => {
         setTool("select");
         wallTools.setSelection([
-          ...walls.map((w) => w.id),
-          ...aps.map((a) => a.id),
-          ...holes.map((h) => h.id),
-          ...areas.map((a) => a.id),
+          ...(layers.walls ? walls : []).map((w) => w.id),
+          ...(layers.aps ? aps : []).map((a) => a.id),
+          ...(layers.holes ? holes : []).map((h) => h.id),
+          ...(layers.areas ? areas : []).map((a) => a.id),
         ]);
       },
     ],
@@ -402,12 +465,13 @@ export function FloorView({
           tool={tool}
           controller={candidateController ?? photoController ?? wallTools.controller}
           onPointerMove={hoverStore.set}
+          showPlan={layers.plan}
           // 校正、位置合わせ、トリミングは、図面の線へのスナップを有効にしたときだけスナップする
           snap={
             snapToGuides
               ? (p, px, previous) =>
                   snapPoint(p, {
-                    walls,
+                    walls: shownWalls,
                     guides: snapGuides.guides,
                     previous,
                     tolerance: SNAP_PX * px,
@@ -452,59 +516,69 @@ export function FloorView({
                   opacity={0.6}
                 />
               )}
-              <AreaLayer
-                areas={areas}
-                stats={stats}
-                selection={wallTools.selectionSet}
-                peers={floorPeers}
-                drafts={wallTools.drafts}
-                px={px}
-                planRotationDeg={plan.rotationDeg}
-                showHandles={tool === "select" && !readOnly && wallTools.selection.length === 1}
-              />
-              <HoleLayer
-                holes={holes}
-                selection={wallTools.selectionSet}
-                peers={floorPeers}
-                drafts={wallTools.drafts}
-                px={px}
-                planRotationDeg={plan.rotationDeg}
-                showHandles={tool === "select" && !readOnly && wallTools.selection.length === 1}
-              />
-              <WallLayer
-                walls={walls}
-                materials={materials}
-                selection={wallTools.selectionSet}
-                warned={overlapIds}
-                peers={floorPeers}
-                drafts={wallTools.drafts}
-                px={px}
-                showHandles={
-                  tool === "select" &&
-                  !readOnly &&
-                  selectedWalls.length === 1 &&
-                  selectedAps.length === 0 &&
-                  selectedHoles.length === 0 &&
-                  selectedAreas.length === 0
-                }
-              />
-              <ApLayer
-                aps={aps}
-                models={doc?.apModels ?? {}}
-                selection={wallTools.selectionSet}
-                peers={floorPeers}
-                move={wallTools.drafts.move}
-                rotate={wallTools.drafts.rotate}
-                showHandles={tool === "select" && !readOnly && wallTools.selection.length === 1}
-                px={px}
-                planRotationDeg={plan.rotationDeg}
-              />
-              <PhotoLayer
-                pins={pins}
-                px={px}
-                planRotationDeg={plan.rotationDeg}
-                activeId={openPinId}
-              />
+              {layers.areas && (
+                <AreaLayer
+                  areas={areas}
+                  stats={stats}
+                  selection={wallTools.selectionSet}
+                  peers={floorPeers}
+                  drafts={wallTools.drafts}
+                  px={px}
+                  planRotationDeg={plan.rotationDeg}
+                  showHandles={tool === "select" && !readOnly && wallTools.selection.length === 1}
+                />
+              )}
+              {layers.holes && (
+                <HoleLayer
+                  holes={holes}
+                  selection={wallTools.selectionSet}
+                  peers={floorPeers}
+                  drafts={wallTools.drafts}
+                  px={px}
+                  planRotationDeg={plan.rotationDeg}
+                  showHandles={tool === "select" && !readOnly && wallTools.selection.length === 1}
+                />
+              )}
+              {layers.walls && (
+                <WallLayer
+                  walls={walls}
+                  materials={materials}
+                  selection={wallTools.selectionSet}
+                  warned={overlapIds}
+                  peers={floorPeers}
+                  drafts={wallTools.drafts}
+                  px={px}
+                  showHandles={
+                    tool === "select" &&
+                    !readOnly &&
+                    selectedWalls.length === 1 &&
+                    selectedAps.length === 0 &&
+                    selectedHoles.length === 0 &&
+                    selectedAreas.length === 0
+                  }
+                />
+              )}
+              {layers.aps && (
+                <ApLayer
+                  aps={aps}
+                  models={doc?.apModels ?? {}}
+                  selection={wallTools.selectionSet}
+                  peers={floorPeers}
+                  move={wallTools.drafts.move}
+                  rotate={wallTools.drafts.rotate}
+                  showHandles={tool === "select" && !readOnly && wallTools.selection.length === 1}
+                  px={px}
+                  planRotationDeg={plan.rotationDeg}
+                />
+              )}
+              {layers.photos && (
+                <PhotoLayer
+                  pins={pins}
+                  px={px}
+                  planRotationDeg={plan.rotationDeg}
+                  activeId={openPinId}
+                />
+              )}
               {showGuides && snapGuides.guides && (
                 <GuideLayer segments={snapGuides.guides.segments} px={px} />
               )}
@@ -750,6 +824,7 @@ export function FloorView({
                 </Popover.Dropdown>
               </Popover>
             )}
+            <LayerMenu layers={layers} onChange={showLayers} />
           </Group>
           {tool === "wall" && (
             <Group gap={4} mt={4}>
@@ -985,264 +1060,298 @@ export function FloorView({
         />
       </Box>
       <Box
-        w={280}
-        p="sm"
-        style={{ borderLeft: "1px solid var(--mantine-color-default-border)", overflowY: "auto" }}
+        w={300}
+        style={{
+          borderLeft: "1px solid var(--mantine-color-default-border)",
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 0,
+        }}
       >
-        <Stack gap="md">
-          <Group justify="space-between">
-            <Text fw={600} size="sm">
-              電波
-            </Text>
-            <Button
-              size="compact-xs"
-              variant="subtle"
-              leftSection={<IconSettings size={14} />}
-              onClick={() => setEditingPropagation(true)}
+        <Tabs
+          value={tab}
+          onChange={(v) => v && setTab(v as SidebarTab)}
+          style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
+        >
+          <Tabs.List grow>
+            <Tabs.Tab value="general">全体</Tabs.Tab>
+            <Tabs.Tab value="walls" rightSection={overlaps.length > 0 ? <WarnMark /> : undefined}>
+              壁
+            </Tabs.Tab>
+            <Tabs.Tab value="aps">AP</Tabs.Tab>
+            <Tabs.Tab
+              value="areas"
+              rightSection={
+                [...stats.values()].some((s) => s.overlapping) ? <WarnMark /> : undefined
+              }
             >
-              設定
-            </Button>
-          </Group>
-          <Switch
-            label="ヒートマップを表示"
-            checked={showHeatmap}
-            onChange={(e) => setShowHeatmap(e.currentTarget.checked)}
-            size="xs"
-          />
-          <SegmentedControl
-            size="xs"
-            aria-label="帯域"
-            value={band}
-            onChange={(v) => setBand(v as Band)}
-            data={BANDS.map((b) => ({ value: b, label: BAND_LABELS[b] }))}
-          />
-          <Select
-            size="xs"
-            label="表示"
-            data={(Object.keys(MODE_LABELS) as HeatmapMode[]).map((m) => ({
-              value: m,
-              label: MODE_LABELS[m],
-            }))}
-            value={mode}
-            allowDeselect={false}
-            onChange={(v) => v && setMode(v as HeatmapMode)}
-          />
-          <MultiSelect
-            size="xs"
-            label="対象の AP"
-            placeholder={apFilter.length === 0 ? "すべて" : undefined}
-            data={apOptions}
-            value={apFilter.filter((id) => apOptionIds.has(id))}
-            onChange={setApFilter}
-            clearable
-            searchable
-          />
+              エリア
+            </Tabs.Tab>
+          </Tabs.List>
+          <Box style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+            <Tabs.Panel value="general" p="sm">
+              <Stack gap="md">
+                <Group justify="space-between">
+                  <Text fw={600} size="sm">
+                    電波
+                  </Text>
+                  <Button
+                    size="compact-xs"
+                    variant="subtle"
+                    leftSection={<IconSettings size={14} />}
+                    onClick={() => setEditingPropagation(true)}
+                  >
+                    設定
+                  </Button>
+                </Group>
+                <SegmentedControl
+                  size="xs"
+                  aria-label="帯域"
+                  value={band}
+                  onChange={(v) => setBand(v as Band)}
+                  data={BANDS.map((b) => ({ value: b, label: BAND_LABELS[b] }))}
+                />
+                <Select
+                  size="xs"
+                  label="表示"
+                  data={(Object.keys(MODE_LABELS) as HeatmapMode[]).map((m) => ({
+                    value: m,
+                    label: MODE_LABELS[m],
+                  }))}
+                  value={mode}
+                  allowDeselect={false}
+                  onChange={(v) => v && setMode(v as HeatmapMode)}
+                />
+                <MultiSelect
+                  size="xs"
+                  label="対象の AP"
+                  placeholder={apFilter.length === 0 ? "すべて" : undefined}
+                  data={apOptions}
+                  value={apFilter.filter((id) => apOptionIds.has(id))}
+                  onChange={setApFilter}
+                  clearable
+                  searchable
+                />
+                <Divider />
+                <Text fw={600} size="sm">
+                  フロアの重ね表示
+                </Text>
+                <Text size="xs" c={here && !here.aligned ? "orange" : "dimmed"}>
+                  {!here
+                    ? "スケールを校正すると位置合わせができます"
+                    : here.isReference
+                      ? "このフロアが位置合わせの基準です。ほかのフロアは「位置合わせ」で、位置の決まったフロアと同じ地点（柱の角など）を 2 点ずつ指定して合わせます。"
+                      : here.aligned
+                        ? "基準フロアとの位置関係が決まっています"
+                        : "まだ基準フロアとの位置関係が決まっていません。「位置合わせ」で、位置の決まったフロアと同じ地点を 2 点ずつ指定してください。"}
+                </Text>
+                {offsetTarget && (
+                  <Group gap={4} justify="space-between" wrap="nowrap">
+                    <Text size="xs">{offsetTarget.name} に合わせてあります</Text>
+                    {!readOnly && (
+                      <Button
+                        size="compact-xs"
+                        variant="subtle"
+                        color="red"
+                        onClick={() => update({ planOffset: undefined })}
+                      >
+                        解除
+                      </Button>
+                    )}
+                  </Group>
+                )}
+                {here && !readOnly && (
+                  <Button
+                    size="compact-xs"
+                    variant="light"
+                    leftSection={<IconStack2 size={14} />}
+                    onClick={() => setAligning(true)}
+                    style={{ alignSelf: "flex-start" }}
+                  >
+                    位置合わせ
+                  </Button>
+                )}
+                {otherFloors.map((other) => {
+                  const o = overlays[other.id] ?? { on: false, opacity: 0.4 };
+                  const set = (patch: Partial<typeof o>) =>
+                    setOverlays((m) => ({ ...m, [other.id]: { ...o, ...patch } }));
+                  const there = placements[other.id];
+                  return (
+                    <Stack key={other.id} gap={2}>
+                      <Switch
+                        size="xs"
+                        label={`${other.name} を重ねる${there && !there.aligned ? "（未位置合わせ）" : ""}`}
+                        checked={o.on}
+                        disabled={!there || !here}
+                        onChange={(e) => set({ on: e.currentTarget.checked })}
+                      />
+                      {o.on && (
+                        <Slider
+                          size="xs"
+                          min={0.1}
+                          max={0.9}
+                          step={0.05}
+                          value={o.opacity}
+                          onChange={(v) => set({ opacity: v })}
+                          label={(v) => `不透明度 ${Math.round(v * 100)}%`}
+                          thumbLabel={`${other.name} の不透明度`}
+                        />
+                      )}
+                    </Stack>
+                  );
+                })}
+              </Stack>
+            </Tabs.Panel>
+            <Tabs.Panel value="walls" p="sm">
+              <Stack gap="md">
+                <Group justify="flex-end">
+                  <Button
+                    size="compact-xs"
+                    variant="subtle"
+                    leftSection={<IconPalette size={14} />}
+                    onClick={() => setEditingMaterials(true)}
+                  >
+                    材質
+                  </Button>
+                </Group>
+                {overlaps.length > 0 && (
+                  <Alert color="orange" p={6}>
+                    <Stack gap={4} align="flex-start">
+                      <Text size="xs">
+                        同じ線の上で高さの範囲が重なる壁が {overlaps.length}{" "}
+                        組あります。重なった部分では減衰を二重に数えます。
+                      </Text>
+                      <Button
+                        size="compact-xs"
+                        variant="light"
+                        color="orange"
+                        onClick={() => selectShowing([...overlapIds], "walls")}
+                      >
+                        重なる壁を選択
+                      </Button>
+                    </Stack>
+                  </Alert>
+                )}
+                {!readOnly && !extractionOpen && (
+                  <Button
+                    size="compact-xs"
+                    variant="light"
+                    leftSection={<IconWand size={14} />}
+                    onClick={() => setExtractionOpen(true)}
+                  >
+                    図面から壁を自動抽出
+                  </Button>
+                )}
+                {(selectedWalls.length > 0 ||
+                  (selectedAps.length === 0 &&
+                    selectedHoles.length === 0 &&
+                    selectedAreas.length === 0)) && (
+                  <WallInspector
+                    floorId={floor.id}
+                    floorHeightM={floor.heightM}
+                    walls={walls}
+                    materials={materials}
+                    selection={selectedWalls}
+                    setSelection={wallTools.setSelection}
+                    onDelete={wallTools.deleteSelection}
+                    metersPerUnit={mpu}
+                  />
+                )}
+                {selectedHoles.length > 0 && (
+                  <Stack gap={4}>
+                    <Text size="xs">
+                      吹き抜け {selectedHoles.length} 個を選択中
+                      {mpu !== undefined &&
+                        `（${selectedHoles
+                          .reduce(
+                            (sum, id) => sum + polygonArea(floor.holes[id]!.points) * mpu * mpu,
+                            0,
+                          )
+                          .toFixed(1)} m²）`}
+                    </Text>
+                    <Text size="xs" c="dimmed">
+                      ドラッグで移動、頂点のハンドルで形を変えられます。3D
+                      ビューではこの範囲の床を抜いて表示します
+                    </Text>
+                    {!readOnly && (
+                      <Button
+                        size="compact-xs"
+                        variant="light"
+                        color="red"
+                        leftSection={<IconTrash size={14} />}
+                        onClick={wallTools.deleteSelection}
+                      >
+                        削除
+                      </Button>
+                    )}
+                  </Stack>
+                )}
+              </Stack>
+            </Tabs.Panel>
+            <Tabs.Panel value="aps" p="sm">
+              <Stack gap="md">
+                <Group justify="flex-end">
+                  <Button
+                    size="compact-xs"
+                    variant="subtle"
+                    leftSection={<IconTable size={14} />}
+                    onClick={() => setShowApTable(true)}
+                  >
+                    AP の一覧
+                  </Button>
+                </Group>
+                {selectedAps.length > 0 ? (
+                  <ApInspector
+                    floorId={floor.id}
+                    aps={aps}
+                    selection={selectedAps}
+                    setSelection={wallTools.setSelection}
+                    library={library}
+                    metersPerUnit={mpu}
+                  />
+                ) : (
+                  <Text size="xs" c="dimmed">
+                    「AP」の道具でモデルを選び、図面をクリックして置きます。置いた AP
+                    をクリックすると設定を変えられます。
+                  </Text>
+                )}
+              </Stack>
+            </Tabs.Panel>
+            <Tabs.Panel value="areas" p="sm">
+              <Stack gap="md">
+                <AreaPanel
+                  floorId={floor.id}
+                  areas={areas}
+                  stats={stats}
+                  selection={selectedAreas}
+                  setSelection={(ids) => selectShowing(ids, "areas")}
+                  onDelete={wallTools.deleteSelection}
+                  peoplePerApTarget={peoplePerApTarget}
+                />
+              </Stack>
+            </Tabs.Panel>
+          </Box>
+        </Tabs>
+        {/* 計算の状況と注意は、どのタブを開いていても見えるよう、パネルの下に出す */}
+        <Stack
+          gap={4}
+          p="sm"
+          style={{ borderTop: "1px solid var(--mantine-color-default-border)" }}
+        >
           <Text size="xs" c="dimmed" aria-live="polite">
             {!transform
               ? "スケールを校正すると計算します"
-              : pending
-                ? "計算中…"
-                : okResult
-                  ? `${okResult.radios.length} 本のラジオを計算済み（${okResult.grid.cols}×${okResult.grid.rows} 点、${okResult.elapsedMs.toFixed(0)} ms）`
-                  : ""}
+              : !showHeatmap
+                ? "ヒートマップを隠しているので計算していません。道具のバーの「表示」で戻せます"
+                : pending
+                  ? "計算中…"
+                  : okResult
+                    ? `${okResult.radios.length} 本のラジオを計算済み（${okResult.grid.cols}×${okResult.grid.rows} 点、${okResult.elapsedMs.toFixed(0)} ms）`
+                    : ""}
           </Text>
-          {okResult && <CalculationNotes notes={okResult.notes} floors={doc?.floors ?? {}} />}
-          <Divider />
-          <Text fw={600} size="sm">
-            フロアの重ね表示
-          </Text>
-          <Text size="xs" c={here && !here.aligned ? "orange" : "dimmed"}>
-            {!here
-              ? "スケールを校正すると位置合わせができます"
-              : here.isReference
-                ? "このフロアが位置合わせの基準です。ほかのフロアは「位置合わせ」で、位置の決まったフロアと同じ地点（柱の角など）を 2 点ずつ指定して合わせます。"
-                : here.aligned
-                  ? "基準フロアとの位置関係が決まっています"
-                  : "まだ基準フロアとの位置関係が決まっていません。「位置合わせ」で、位置の決まったフロアと同じ地点を 2 点ずつ指定してください。"}
-          </Text>
-          {offsetTarget && (
-            <Group gap={4} justify="space-between" wrap="nowrap">
-              <Text size="xs">{offsetTarget.name} に合わせてあります</Text>
-              {!readOnly && (
-                <Button
-                  size="compact-xs"
-                  variant="subtle"
-                  color="red"
-                  onClick={() => update({ planOffset: undefined })}
-                >
-                  解除
-                </Button>
-              )}
-            </Group>
+          {showHeatmap && okResult && (
+            <CalculationNotes notes={okResult.notes} floors={doc?.floors ?? {}} />
           )}
-          {here && !readOnly && (
-            <Button
-              size="compact-xs"
-              variant="light"
-              leftSection={<IconStack2 size={14} />}
-              onClick={() => setAligning(true)}
-              style={{ alignSelf: "flex-start" }}
-            >
-              位置合わせ
-            </Button>
-          )}
-          {otherFloors.map((other) => {
-            const o = overlays[other.id] ?? { on: false, opacity: 0.4 };
-            const set = (patch: Partial<typeof o>) =>
-              setOverlays((m) => ({ ...m, [other.id]: { ...o, ...patch } }));
-            const there = placements[other.id];
-            return (
-              <Stack key={other.id} gap={2}>
-                <Switch
-                  size="xs"
-                  label={`${other.name} を重ねる${there && !there.aligned ? "（未位置合わせ）" : ""}`}
-                  checked={o.on}
-                  disabled={!there || !here}
-                  onChange={(e) => set({ on: e.currentTarget.checked })}
-                />
-                {o.on && (
-                  <Slider
-                    size="xs"
-                    min={0.1}
-                    max={0.9}
-                    step={0.05}
-                    value={o.opacity}
-                    onChange={(v) => set({ opacity: v })}
-                    label={(v) => `不透明度 ${Math.round(v * 100)}%`}
-                    thumbLabel={`${other.name} の不透明度`}
-                  />
-                )}
-              </Stack>
-            );
-          })}
-          <Divider />
-          <Group justify="space-between">
-            <Text fw={600} size="sm">
-              壁
-            </Text>
-            <Button
-              size="compact-xs"
-              variant="subtle"
-              leftSection={<IconPalette size={14} />}
-              onClick={() => setEditingMaterials(true)}
-            >
-              材質
-            </Button>
-          </Group>
-          {overlaps.length > 0 && (
-            <Alert color="orange" p={6}>
-              <Stack gap={4} align="flex-start">
-                <Text size="xs">
-                  同じ線の上で高さの範囲が重なる壁が {overlaps.length}{" "}
-                  組あります。重なった部分では減衰を二重に数えます。
-                </Text>
-                <Button
-                  size="compact-xs"
-                  variant="light"
-                  color="orange"
-                  onClick={() => wallTools.setSelection([...overlapIds])}
-                >
-                  重なる壁を選択
-                </Button>
-              </Stack>
-            </Alert>
-          )}
-          {!readOnly && !extractionOpen && (
-            <Button
-              size="compact-xs"
-              variant="light"
-              leftSection={<IconWand size={14} />}
-              onClick={() => setExtractionOpen(true)}
-            >
-              図面から壁を自動抽出
-            </Button>
-          )}
-          {(selectedWalls.length > 0 ||
-            (selectedAps.length === 0 &&
-              selectedHoles.length === 0 &&
-              selectedAreas.length === 0)) && (
-            <WallInspector
-              floorId={floor.id}
-              floorHeightM={floor.heightM}
-              walls={walls}
-              materials={materials}
-              selection={selectedWalls}
-              setSelection={wallTools.setSelection}
-              onDelete={wallTools.deleteSelection}
-              metersPerUnit={mpu}
-            />
-          )}
-          {selectedHoles.length > 0 && (
-            <Stack gap={4}>
-              <Text size="xs">
-                吹き抜け {selectedHoles.length} 個を選択中
-                {mpu !== undefined &&
-                  `（${selectedHoles
-                    .reduce((sum, id) => sum + polygonArea(floor.holes[id]!.points) * mpu * mpu, 0)
-                    .toFixed(1)} m²）`}
-              </Text>
-              <Text size="xs" c="dimmed">
-                ドラッグで移動、頂点のハンドルで形を変えられます。3D
-                ビューではこの範囲の床を抜いて表示します
-              </Text>
-              {!readOnly && (
-                <Button
-                  size="compact-xs"
-                  variant="light"
-                  color="red"
-                  leftSection={<IconTrash size={14} />}
-                  onClick={wallTools.deleteSelection}
-                >
-                  削除
-                </Button>
-              )}
-            </Stack>
-          )}
-          <Divider />
-          <Group justify="space-between">
-            <Text fw={600} size="sm">
-              AP
-            </Text>
-            <Button
-              size="compact-xs"
-              variant="subtle"
-              leftSection={<IconTable size={14} />}
-              onClick={() => setShowApTable(true)}
-            >
-              AP の一覧
-            </Button>
-          </Group>
-          {selectedAps.length > 0 ? (
-            <ApInspector
-              floorId={floor.id}
-              aps={aps}
-              selection={selectedAps}
-              setSelection={wallTools.setSelection}
-              library={library}
-              metersPerUnit={mpu}
-            />
-          ) : (
-            <Text size="xs" c="dimmed">
-              「AP」の道具でモデルを選び、図面をクリックして置きます。置いた AP
-              をクリックすると設定を変えられます。
-            </Text>
-          )}
-          <Divider />
-          <Text fw={600} size="sm">
-            エリア
-          </Text>
-          <AreaPanel
-            floorId={floor.id}
-            areas={areas}
-            stats={stats}
-            selection={selectedAreas}
-            setSelection={(ids) => {
-              setTool("select");
-              wallTools.setSelection(ids);
-            }}
-            onDelete={wallTools.deleteSelection}
-            peoplePerApTarget={peoplePerApTarget}
-          />
         </Stack>
       </Box>
       <MaterialsModal opened={editingMaterials} onClose={() => setEditingMaterials(false)} />
@@ -1257,6 +1366,13 @@ export function FloorView({
         onClose={() => setEditingPropagation(false)}
       />
     </Box>
+  );
+}
+
+/** タブに付ける警告の印 */
+function WarnMark() {
+  return (
+    <IconAlertTriangle size={12} color="var(--mantine-color-orange-6)" aria-label="警告あり" />
   );
 }
 
