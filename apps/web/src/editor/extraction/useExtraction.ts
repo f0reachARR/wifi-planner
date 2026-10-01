@@ -6,6 +6,42 @@ import { notifyError } from "../../notify";
 
 export type Candidate = { id: string; points: Vec2[] };
 
+/**
+ * サーバで壁の抽出のジョブを動かし、終わるまで待つ。折れ線は図面座標で返す。
+ * トリミングしていれば、その範囲だけを処理する
+ */
+export async function runExtractionJob(
+  projectId: string,
+  plan: PlanImage,
+  params: Partial<ExtractionParams>,
+  signal?: AbortSignal,
+): Promise<{ polylines: Vec2[][]; elapsedMs?: number }> {
+  const upp = plan.unitsPerPx;
+  // 範囲は画像のピクセルで渡す
+  const region = plan.crop && {
+    x: plan.crop.x / upp,
+    y: plan.crop.y / upp,
+    width: plan.crop.width / upp,
+    height: plan.crop.height / upp,
+  };
+  const created = await api.post<ExtractionJob>(`/projects/${projectId}/extractions`, {
+    imageSha256: plan.imageSha256,
+    region,
+    params,
+  });
+  let job = created;
+  while (job.status === "running") {
+    await new Promise((r) => setTimeout(r, 400));
+    signal?.throwIfAborted();
+    job = await api.get<ExtractionJob>(`/projects/${projectId}/extractions/${created.id}`);
+  }
+  if (job.status === "failed") throw new Error(job.error ?? "抽出に失敗しました");
+  return {
+    polylines: (job.polylines ?? []).map((pl) => pl.map((p) => ({ x: p.x * upp, y: p.y * upp }))),
+    elapsedMs: job.elapsedMs,
+  };
+}
+
 /** 壁の自動抽出の実行と候補（FR-4.1〜4.3）。候補はこのユーザーのローカル状態にだけ持つ */
 export function useExtraction(projectId: string, plan: PlanImage | undefined) {
   const [running, setRunning] = useState(false);
@@ -17,33 +53,12 @@ export function useExtraction(projectId: string, plan: PlanImage | undefined) {
     if (!plan) return;
     setRunning(true);
     try {
-      const upp = plan.unitsPerPx;
-      // トリミングしていれば、その範囲だけを処理する。範囲は画像のピクセルで渡す
-      const region = plan.crop && {
-        x: plan.crop.x / upp,
-        y: plan.crop.y / upp,
-        width: plan.crop.width / upp,
-        height: plan.crop.height / upp,
-      };
-      const created = await api.post<ExtractionJob>(`/projects/${projectId}/extractions`, {
-        imageSha256: plan.imageSha256,
-        region,
-        params,
-      });
-      let job = created;
-      while (job.status === "running") {
-        await new Promise((r) => setTimeout(r, 400));
-        job = await api.get<ExtractionJob>(`/projects/${projectId}/extractions/${created.id}`);
-      }
-      if (job.status === "failed") throw new Error(job.error ?? "抽出に失敗しました");
-      const next = (job.polylines ?? []).map((pl, i) => ({
-        id: `c${i}`,
-        points: pl.map((p) => ({ x: p.x * upp, y: p.y * upp })),
-      }));
+      const { polylines, elapsedMs } = await runExtractionJob(projectId, plan, params);
+      const next = polylines.map((points, i) => ({ id: `c${i}`, points }));
       setCandidates(next);
       // 最初はすべて選んだ状態にし、要らないものを外してもらう
       setPicked(new Set(next.map((c) => c.id)));
-      setElapsedMs(job.elapsedMs);
+      setElapsedMs(elapsedMs);
     } catch (e) {
       notifyError(e);
     } finally {

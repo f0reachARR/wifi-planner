@@ -1,5 +1,7 @@
 import { closestOnPolyline, type Rect, type Vec2, type Wall } from "@wifi-planner/domain";
 
+import type { SnapGuides } from "./snap/guides";
+
 export type WallEntry = Wall & { id: string };
 
 /** p に最も近い壁。tolerance（図面座標）より遠ければ undefined */
@@ -69,10 +71,26 @@ export function rectToPolygon(r: Rect): Vec2[] {
   ];
 }
 
-export type SnapKind = "endpoint" | "onWall" | "orthogonal" | "none";
+export type SnapKind =
+  | "endpoint"
+  | "guideIntersection"
+  | "guideEndpoint"
+  | "onWall"
+  | "guideAxis"
+  | "onGuide"
+  | "orthogonal"
+  | "none";
+
+export type SnapResult = { point: Vec2; kind: SnapKind };
+
+/** スナップする距離（画面のピクセル） */
+export const SNAP_PX = 10;
 
 /**
- * 描画中の点のスナップ（FR-4.4）。既存の壁の端点、既存の壁の上の点、直前の点からの直交方向の順に優先する。
+ * 点のスナップ（FR-4.4）。次の順に優先する。
+ * 既存の壁の端点、図面の線の交点、図面の線の端点、既存の壁の上の点、
+ * 直前の点から縦横に引いた線と図面の線が交わる点、図面の線の上の点、直前の点からの直交方向。
+ * 既存の壁を図面の線より優先し、描いた壁どうしのつながりを崩さない。
  * tolerance は図面座標での距離。直交方向は図面の軸に対する角度で判定する。
  */
 export function snapPoint(
@@ -80,15 +98,18 @@ export function snapPoint(
   opts: {
     walls: readonly WallEntry[];
     extraEndpoints?: readonly Vec2[];
+    /** スナップ用の図面の線 */
+    guides?: SnapGuides;
     previous?: Vec2;
     tolerance: number;
     angleToleranceDeg?: number;
     excludeWallIds?: ReadonlySet<string>;
   },
-): { point: Vec2; kind: SnapKind } {
+): SnapResult {
+  const tol = opts.tolerance;
   const candidates = opts.walls.filter((w) => !opts.excludeWallIds?.has(w.id));
   let best: Vec2 | undefined;
-  let bestDist = opts.tolerance;
+  let bestDist = tol;
   const endpoints = [
     ...candidates.flatMap((w) => [w.points[0]!, w.points.at(-1)!]),
     ...(opts.extraEndpoints ?? []),
@@ -102,9 +123,16 @@ export function snapPoint(
   }
   if (best) return { point: { ...best }, kind: "endpoint" };
 
-  const onWall = hitTestWall(candidates, p, opts.tolerance * 0.6);
+  const g = opts.guides;
+  const cross = g?.nearestIntersection(p, tol);
+  if (cross) return { point: cross, kind: "guideIntersection" };
+  const guideEnd = g?.nearestEndpoint(p, tol * 0.8);
+  if (guideEnd) return { point: guideEnd, kind: "guideEndpoint" };
+
+  const onWall = hitTestWall(candidates, p, tol * 0.6);
   if (onWall) return { point: onWall.point, kind: "onWall" };
 
+  let axis: { point: Vec2; horizontal: boolean } | undefined;
   if (opts.previous) {
     const dx = p.x - opts.previous.x;
     const dy = p.y - opts.previous.y;
@@ -112,11 +140,18 @@ export function snapPoint(
     const nearest = Math.round(angle / 90) * 90;
     if (Math.abs(angle - nearest) <= (opts.angleToleranceDeg ?? 7)) {
       const horizontal = nearest % 180 === 0;
-      return {
+      axis = {
         point: horizontal ? { x: p.x, y: opts.previous.y } : { x: opts.previous.x, y: p.y },
-        kind: "orthogonal",
+        horizontal,
       };
     }
   }
+  if (axis && opts.previous) {
+    const hit = g?.nearestOnAxis(p, opts.previous, axis.horizontal, tol);
+    if (hit) return { point: hit, kind: "guideAxis" };
+  }
+  const onGuide = g?.nearestOnSegment(p, tol * 0.6);
+  if (onGuide) return { point: onGuide, kind: "onGuide" };
+  if (axis) return { point: axis.point, kind: "orthogonal" };
   return { point: p, kind: "none" };
 }

@@ -19,6 +19,8 @@ import {
 import { fileUrl } from "../../api/client";
 import { useSession, useSessionState } from "../../collab/react";
 import type { FloorEntry } from "../FloorPanel";
+import type { SnapResult } from "../geometry";
+import { SnapMarker } from "../snap/SnapMarker";
 import { useHtmlImage } from "./useHtmlImage";
 
 export type CanvasTool =
@@ -130,6 +132,11 @@ export function PlanCanvas(props: {
   tool: CanvasTool;
   handlers?: CanvasHandlers;
   controller?: ToolController;
+  /**
+   * スケール校正、位置合わせ、トリミングで置く点のスナップ。previous は校正の 1 点目。
+   * Alt を押している間はスナップしない
+   */
+  snap?: (p: Vec2, px: number, previous?: Vec2) => SnapResult;
   /** カーソルの図面座標。キャンバスの外に出たら undefined */
   onPointerMove?: (p: Vec2 | undefined) => void;
   /** 図面座標で描く重ね描き。引数は画面の 1 ピクセルが図面座標でいくつか */
@@ -143,6 +150,7 @@ export function PlanCanvas(props: {
   const [view, setView] = useState<View>({ x: 0, y: 0, scale: 1 });
   const [panning, setPanning] = useState<{ start: Vec2; view: View }>();
   const [draft, setDraft] = useState<{ a: Vec2; b: Vec2 }>();
+  const [snapHover, setSnapHover] = useState<SnapResult>();
 
   const plan = floor.plan;
   const rotation = plan?.rotationDeg ?? 0;
@@ -158,7 +166,10 @@ export function PlanCanvas(props: {
 
   // 道具を切り替えたら作りかけの操作を捨てる
   // biome-ignore lint/correctness/useExhaustiveDependencies: tool の変化だけを見る
-  useEffect(() => setDraft(undefined), [tool]);
+  useEffect(() => {
+    setDraft(undefined);
+    setSnapHover(undefined);
+  }, [tool]);
 
   const pointerPlan = useCallback((): Vec2 | undefined => {
     return planGroup.current?.getRelativePointerPosition() ?? undefined;
@@ -207,6 +218,13 @@ export function PlanCanvas(props: {
     button: e.button,
   });
 
+  const pointTool = tool === "calibrate" || tool === "align" || tool === "crop";
+  /** 点を置く道具（校正、位置合わせ、トリミング）の点をスナップする */
+  const snapAt = (e: MouseEvent, p: Vec2): SnapResult =>
+    pointTool && props.snap && !e.altKey
+      ? props.snap(p, 1 / view.scale, tool === "calibrate" ? draft?.a : undefined)
+      : { point: p, kind: "none" };
+
   const onMouseDown = (e: KonvaEventObject<MouseEvent>) => {
     const stage = e.target.getStage();
     const pointer = stage?.getPointerPosition();
@@ -219,21 +237,21 @@ export function PlanCanvas(props: {
     }
     const right = e.evt.button === 2;
     if (e.evt.button !== 0 && !(right && controller?.rightButton)) return;
-    const p = pointerPlan();
-    if (!p) return;
-    if (right) {
-      controller?.onDown?.(info(e.evt, p));
-    } else if (tool === "calibrate" || tool === "align") {
-      if (!draft) setDraft({ a: p, b: p });
-      else {
-        if (tool === "calibrate") handlers?.onCalibrate?.(draft.a, p);
-        else handlers?.onAlign?.(draft.a, p);
-        setDraft(undefined);
-      }
-    } else if (tool === "crop") {
+    const raw = pointerPlan();
+    if (!raw) return;
+    if (right || !pointTool) {
+      controller?.onDown?.(info(e.evt, raw));
+      return;
+    }
+    const p = snapAt(e.evt, raw).point;
+    if (tool === "crop") {
+      setDraft({ a: p, b: p });
+    } else if (!draft) {
       setDraft({ a: p, b: p });
     } else {
-      controller?.onDown?.(info(e.evt, p));
+      if (tool === "calibrate") handlers?.onCalibrate?.(draft.a, p);
+      else handlers?.onAlign?.(draft.a, p);
+      setDraft(undefined);
     }
   };
 
@@ -250,7 +268,11 @@ export function PlanCanvas(props: {
     const p = pointerPlan();
     sendCursor(p);
     props.onPointerMove?.(p);
-    if (draft && p) setDraft({ ...draft, b: p });
+    if (p && pointTool) {
+      const s = snapAt(e.evt, p);
+      setSnapHover(s);
+      if (draft) setDraft({ ...draft, b: s.point });
+    }
     if (p) controller?.onMove?.(info(e.evt, p));
   };
 
@@ -312,6 +334,7 @@ export function PlanCanvas(props: {
           }}
           onMouseLeave={() => {
             setPanning(undefined);
+            setSnapHover(undefined);
             sendCursor(undefined);
             props.onPointerMove?.(undefined);
             controller?.onCancel?.();
@@ -396,6 +419,9 @@ export function PlanCanvas(props: {
                     dash={[6 * px, 4 * px]}
                     listening={false}
                   />
+                )}
+                {pointTool && snapHover && snapHover.kind !== "none" && (
+                  <SnapMarker point={snapHover.point} kind={snapHover.kind} px={px} />
                 )}
 
                 {peerCursors.map((p) => (

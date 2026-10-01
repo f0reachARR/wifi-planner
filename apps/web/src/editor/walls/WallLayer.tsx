@@ -3,6 +3,7 @@ import { Fragment } from "react";
 import { Circle, Group, Line, Rect } from "react-konva";
 import type { PeerPresence } from "../../collab/session";
 import type { SnapKind, WallEntry } from "../geometry";
+import { SnapMarker } from "../snap/SnapMarker";
 
 const flat = (points: readonly Vec2[]) => points.flatMap((p) => [p.x, p.y]);
 
@@ -17,7 +18,7 @@ export type WallDrafts = {
   drawing?: { points: Vec2[]; hover?: Vec2; snap: SnapKind };
   marquee?: Vec2[];
   move?: { dx: number; dy: number };
-  vertex?: { wallId: string; index: number; point: Vec2 };
+  vertex?: { wallId: string; index: number; point: Vec2; snap: SnapKind };
   hover?: { wallId: string; point: Vec2 };
 };
 
@@ -161,21 +162,13 @@ export function WallLayer(props: {
             opacity={0.8}
           />
           {drafts.drawing.hover && (
-            <Circle
-              x={drafts.drawing.hover.x}
-              y={drafts.drawing.hover.y}
-              radius={(drafts.drawing.snap === "none" ? 3 : 6) * px}
-              stroke={
-                drafts.drawing.snap === "endpoint"
-                  ? "#e03131"
-                  : drafts.drawing.snap === "onWall"
-                    ? "#e8590c"
-                    : "#228be6"
-              }
-              strokeWidth={2 * px}
-            />
+            <SnapMarker point={drafts.drawing.hover} kind={drafts.drawing.snap} px={px} />
           )}
         </>
+      )}
+
+      {drafts.vertex && drafts.vertex.snap !== "none" && (
+        <SnapMarker point={drafts.vertex.point} kind={drafts.vertex.snap} px={px} />
       )}
 
       {drafts.marquee && drafts.marquee.length > 1 && (

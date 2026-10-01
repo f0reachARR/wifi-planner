@@ -28,6 +28,7 @@ import {
   IconDoor,
   IconFileImport,
   IconHandStop,
+  IconMagnet,
   IconPalette,
   IconPointer,
   IconRotate2,
@@ -78,7 +79,7 @@ import { ExtractionPanel } from "./extraction/ExtractionPanel";
 import { useCandidateSelection } from "./extraction/useCandidateSelection";
 import { useExtraction } from "./extraction/useExtraction";
 import { type FloorEntry, sortedFloors } from "./FloorPanel";
-import type { WallEntry } from "./geometry";
+import { SNAP_PX, snapPoint, type WallEntry } from "./geometry";
 import { HeatmapLayer } from "./heatmap/HeatmapLayer";
 import { HoverReadout } from "./heatmap/HoverReadout";
 import { createHoverStore } from "./heatmap/hover";
@@ -91,6 +92,8 @@ import { PlanImportModal } from "./PlanImportModal";
 import { PhotoLayer, type PinEntry } from "./photos/PhotoLayer";
 import { PhotoPinDrawer } from "./photos/PhotoPinDrawer";
 import { ScaleModal } from "./ScaleModal";
+import { GuideLayer } from "./snap/SnapMarker";
+import { useSnapGuides } from "./snap/useSnapGuides";
 import { useWallTools } from "./walls/useWallTools";
 import { WallInspector } from "./walls/WallInspector";
 import { WallLayer } from "./walls/WallLayer";
@@ -155,6 +158,11 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
     return id;
   };
 
+  // 図面の線へのスナップ（FR-4.4）。抽出した線はユーザーごとのローカル状態
+  const [snapToGuides, setSnapToGuides] = useState(false);
+  const [showGuides, setShowGuides] = useState(false);
+  const [snapOpen, setSnapOpen] = useState(false);
+  const snapGuides = useSnapGuides(session.projectId, floor.plan, snapToGuides);
   const wallTools = useWallTools({
     floorId: floor.id,
     walls,
@@ -162,6 +170,7 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
     tool,
     metersPerUnit: mpu,
     materialIds,
+    guides: snapGuides.guides,
     onPlaceAp: placeAp,
   });
   // 電波の表示（FR-8.1〜8.8）
@@ -296,6 +305,18 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
           tool={tool}
           controller={candidateController ?? photoController ?? wallTools.controller}
           onPointerMove={hoverStore.set}
+          // 校正、位置合わせ、トリミングは、図面の線へのスナップを有効にしたときだけスナップする
+          snap={
+            snapToGuides
+              ? (p, px, previous) =>
+                  snapPoint(p, {
+                    walls,
+                    guides: snapGuides.guides,
+                    previous,
+                    tolerance: SNAP_PX * px,
+                  })
+              : undefined
+          }
           handlers={{
             onCalibrate: (a, b) => setCalibration({ a, b }),
             onAlign: (a, b) => {
@@ -367,6 +388,9 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                 planRotationDeg={plan.rotationDeg}
                 activeId={openPinId}
               />
+              {showGuides && snapGuides.guides && (
+                <GuideLayer segments={snapGuides.guides.segments} px={px} />
+              )}
               {extractionOpen && (
                 <CandidateLayer
                   candidates={extraction.candidates}
@@ -541,6 +565,52 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                     >
                       図面を差し替え
                     </Button>
+                  </Stack>
+                </Popover.Dropdown>
+              </Popover>
+            )}
+            {!readOnly && (
+              <Popover
+                position="bottom-start"
+                shadow="md"
+                withinPortal
+                opened={snapOpen}
+                onChange={setSnapOpen}
+                transitionProps={{ duration: 0 }}
+              >
+                <Popover.Target>
+                  <Button
+                    onClick={() => setSnapOpen((o) => !o)}
+                    size="compact-xs"
+                    variant={snapToGuides ? "light" : "subtle"}
+                    leftSection={<IconMagnet size={14} />}
+                    loading={snapGuides.loading}
+                  >
+                    スナップ
+                  </Button>
+                </Popover.Target>
+                <Popover.Dropdown>
+                  <Stack gap="xs" maw={260}>
+                    <Switch
+                      size="xs"
+                      label="図面の線にスナップ"
+                      description="図面から輪郭の線を抽出し、その線と交点にスナップします。Alt を押している間はスナップしません"
+                      checked={snapToGuides}
+                      onChange={(e) => setSnapToGuides(e.currentTarget.checked)}
+                    />
+                    <Switch
+                      size="xs"
+                      label="スナップする線を表示"
+                      checked={showGuides}
+                      disabled={!snapToGuides}
+                      onChange={(e) => setShowGuides(e.currentTarget.checked)}
+                    />
+                    {snapGuides.guides && (
+                      <Text size="xs" c="dimmed">
+                        線 {snapGuides.guides.segments.length} 本、交点{" "}
+                        {snapGuides.guides.intersections.length} 個
+                      </Text>
+                    )}
                   </Stack>
                 </Popover.Dropdown>
               </Popover>

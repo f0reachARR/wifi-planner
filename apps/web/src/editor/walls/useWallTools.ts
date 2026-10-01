@@ -20,21 +20,23 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "../../collab/react";
 import { notifyError } from "../../notify";
 import type { ApEntry } from "../aps/ApLayer";
-import type { CanvasTool, ToolController } from "../canvas/PlanCanvas";
+import type { CanvasTool, PointerInfo, ToolController } from "../canvas/PlanCanvas";
 import {
   hitTestWall,
   pointInPolygon,
   rectToPolygon,
+  SNAP_PX,
+  type SnapKind,
   snapPoint,
   type WallEntry,
   wallsInPolygon,
 } from "../geometry";
+import type { SnapGuides } from "../snap/guides";
 import type { WallDrafts } from "./WallLayer";
 
 /** 画面上で何ピクセル以内を「近い」とみなすか */
 const HIT_PX = 8;
 const AP_HIT_PX = 12;
-const SNAP_PX = 10;
 /** これより小さいドラッグはクリックとみなす */
 const DRAG_PX = 3;
 
@@ -51,7 +53,7 @@ type Gesture =
       dy: number;
       moved: boolean;
     }
-  | { kind: "vertex"; wallId: string; index: number; point: Vec2 };
+  | { kind: "vertex"; wallId: string; index: number; point: Vec2; snap: SnapKind };
 
 /** 開口部の既定の幅（メートル） */
 const OPENING_WIDTH_M: Record<OpeningKind, number> = { door: 0.9, window: 1.8, other: 1.0 };
@@ -72,6 +74,8 @@ export function useWallTools(opts: {
   tool: CanvasTool;
   metersPerUnit: number | undefined;
   materialIds: ReadonlySet<string>;
+  /** スナップ用の図面の線 */
+  guides?: SnapGuides;
   /** AP の道具でクリックしたとき。置いた AP の ID を返す */
   onPlaceAp?: (p: Vec2) => string | undefined;
 }) {
@@ -131,14 +135,18 @@ export function useWallTools(opts: {
       setDrawMaterialId([...opts.materialIds][0] ?? DEFAULT_WALL_MATERIAL_ID);
   }, [opts.materialIds, drawMaterialId]);
 
-  const snap = (p: Vec2, px: number, previous?: Vec2, excludeWallIds?: ReadonlySet<string>) =>
-    snapPoint(p, {
-      walls,
-      extraEndpoints: drawing.length > 2 ? [drawing[0]!] : [],
-      previous,
-      tolerance: SNAP_PX * px,
-      excludeWallIds,
-    });
+  /** Alt を押している間はスナップしない */
+  const snap = (e: PointerInfo, previous?: Vec2, excludeWallIds?: ReadonlySet<string>) =>
+    e.alt
+      ? { point: e.p, kind: "none" as const }
+      : snapPoint(e.p, {
+          walls,
+          extraEndpoints: drawing.length > 2 ? [drawing[0]!] : [],
+          guides: opts.guides,
+          previous,
+          tolerance: SNAP_PX * e.px,
+          excludeWallIds,
+        });
 
   const finishDrawing = (points: Vec2[] = drawingRef.current) => {
     // ダブルクリックで同じ点が 2 回入ることがあるので、連続する重複を除く
@@ -198,7 +206,7 @@ export function useWallTools(opts: {
   if (tool === "wall" && !readOnly) {
     controller.cursor = "crosshair";
     controller.onMove = (e) => {
-      const s = snap(e.p, e.px, drawing.at(-1));
+      const s = snap(e, drawing.at(-1));
       setHover({ point: s.point, snap: s.kind });
     };
     controller.onDown = (e) => {
@@ -208,7 +216,7 @@ export function useWallTools(opts: {
         finishDrawing();
         return;
       }
-      const s = snap(e.p, e.px, current.at(-1));
+      const s = snap(e, current.at(-1));
       // 最初の点に戻ったら閉じて確定する
       if (current.length > 2 && s.point.x === current[0]!.x && s.point.y === current[0]!.y) {
         finishDrawing([...current, s.point]);
@@ -258,7 +266,13 @@ export function useWallTools(opts: {
           wall?.points.findIndex((p) => Math.hypot(p.x - e.p.x, p.y - e.p.y) <= HIT_PX * e.px) ??
           -1;
         if (wall && index >= 0) {
-          setGesture({ kind: "vertex", wallId: wall.id, index, point: wall.points[index]! });
+          setGesture({
+            kind: "vertex",
+            wallId: wall.id,
+            index,
+            point: wall.points[index]!,
+            snap: "none",
+          });
           return;
         }
       }
@@ -295,8 +309,8 @@ export function useWallTools(opts: {
       } else if (gesture.kind === "vertex") {
         const wall = walls.find((w) => w.id === gesture.wallId);
         const neighbor = wall?.points[gesture.index === 0 ? 1 : gesture.index - 1];
-        const s = snap(e.p, e.px, neighbor, new Set([gesture.wallId]));
-        setGesture({ ...gesture, point: s.point });
+        const s = snap(e, neighbor, new Set([gesture.wallId]));
+        setGesture({ ...gesture, point: s.point, snap: s.kind });
       }
     };
     controller.onUp = (e) => {
