@@ -3,7 +3,9 @@ import {
   type Floor,
   type FloorPlacement,
   type HeightRange,
+  invertRigid,
   type Material,
+  type MountType,
   openingHeightRange,
   pointAtLength,
   type Rect,
@@ -11,7 +13,14 @@ import {
   type Vec2,
   wallHeightRange,
 } from "@wifi-planner/domain";
-import type { GridSpec, SectionGrid } from "@wifi-planner/propagation";
+import {
+  antennaFrame,
+  type GridSpec,
+  rotateFrame,
+  type SectionBounds,
+  type SectionGrid,
+  type SectionParams,
+} from "@wifi-planner/propagation";
 import { ShapeUtils, Vector2 } from "three";
 
 // 疑似 3D ビューの形（FR-3.4〜3.6）。ワールド座標の (x, y) と高さ h を、three.js の y 軸を上とする座標 (x, h, -y) に置く。
@@ -23,6 +32,85 @@ export const toThree = (p: Vec2, h: number): Vec3 => [p.x, h, -p.y];
 /** 図面座標の点をワールド座標にする */
 export const planToWorld = (placement: FloorPlacement, p: Vec2) =>
   applyRigid(placement.toWorld, placement.plan.toFloor(p));
+
+/** three.js の座標の点を、そのフロアの図面座標にする。高さは捨てる */
+export const threeToPlan = (placement: FloorPlacement, p: Vec3): Vec2 =>
+  placement.plan.toPlan(applyRigid(invertRigid(placement.toWorld), { x: p[0], y: -p[2] }));
+
+/** フロアの置き方の回転（フロア座標からワールド座標へ）の角度。ラジアン */
+const placementAngle = (placement: FloorPlacement) =>
+  Math.atan2(placement.toWorld.sin, placement.toWorld.cos);
+
+const normalizeDeg = (deg: number, period: number) => ((deg % period) + period) % period;
+
+/**
+ * AP の向き（FR-3.6）を three.js の座標の基底にする。基底はアンテナの局所座標（設計書 5.3 節）の x（主ビーム）、y、z の順で、
+ * 伝搬計算と同じ antennaFrame をフロアの置き方の回転でワールド座標に移したもの。
+ * フロア座標から three.js への (x, y, z) → (x, z, -y) は回転なので、右手系の基底のまま使える
+ */
+export function apBasis(
+  placement: FloorPlacement,
+  mount: MountType,
+  azimuthDeg: number,
+  tiltDeg: number,
+): [Vec3, Vec3, Vec3] {
+  const f = rotateFrame(
+    antennaFrame(mount, azimuthDeg, tiltDeg),
+    placement.toWorld.cos,
+    placement.toWorld.sin,
+  );
+  const axis = (k: number) => toThree({ x: f[k]!, y: f[k + 1]! }, f[k + 2]!);
+  return [axis(0), axis(3), axis(6)];
+}
+
+/**
+ * apBasis の逆。three.js の座標で表した主ビーム（局所 x）と局所 y から、方位角（0 以上 360 未満）とチルトを求める。
+ * 局所 y はどちらの設置方法でもチルトによらず水平で、方位角の向き h を反時計回りに 90° 回した向きになる。
+ * チルトは局所 y のまわりの回転なので、主ビームを h と鉛直からなる面で測る。表せないひねりは捨て、チルトは ±90° に収める
+ */
+export function apOrientationFrom(
+  placement: FloorPlacement,
+  mount: MountType,
+  x: Vec3,
+  y: Vec3,
+): { azimuthDeg: number; tiltDeg: number } {
+  // three.js の座標をワールド座標 (x, y, 高さ) にする
+  const world = (v: Vec3) => ({ x: v[0], y: -v[2], z: v[1] });
+  const yw = world(y);
+  const xw = world(x);
+  const azWorld = Math.atan2(-yw.x, yw.y);
+  const along = xw.x * Math.cos(azWorld) + xw.y * Math.sin(azWorld);
+  const tilt = mount === "wall" ? Math.atan2(-xw.z, along) : Math.atan2(along, -xw.z);
+  return {
+    azimuthDeg: normalizeDeg(((azWorld - placementAngle(placement)) * 180) / Math.PI, 360),
+    tiltDeg: Math.min(90, Math.max(-90, (tilt * 180) / Math.PI)),
+  };
+}
+
+/** 断面の直線が通る点のうち、建物の中心に最も近いもの（ワールド座標）。sectionGrid の格子の原点と同じ */
+export function sectionOrigin(bounds: SectionBounds, params: SectionParams): Vec2 {
+  const a = (params.angleDeg * Math.PI) / 180;
+  return {
+    x: (bounds.minX + bounds.maxX) / 2 - Math.sin(a) * params.offsetM,
+    y: (bounds.minY + bounds.maxY) / 2 + Math.cos(a) * params.offsetM,
+  };
+}
+
+/**
+ * 断面の直線が通る点（ワールド座標）と水平の向き（ワールド座標の +x から反時計回り、度）から、断面の向きと位置を求める。
+ * 向きは 0° 以上 180° 未満に揃え、位置は建物の中心から断面に垂直な向きへのずれにする
+ */
+export function sectionParamsFrom(
+  bounds: SectionBounds,
+  point: Vec2,
+  directionDeg: number,
+): SectionParams {
+  const angleDeg = normalizeDeg(directionDeg, 180);
+  const a = (angleDeg * Math.PI) / 180;
+  const cx = (bounds.minX + bounds.maxX) / 2;
+  const cy = (bounds.minY + bounds.maxY) / 2;
+  return { angleDeg, offsetM: -Math.sin(a) * (point.x - cx) + Math.cos(a) * (point.y - cy) };
+}
 
 /** 四角形（2 つの三角形）の頂点と UV。corners は左上、右上、右下、左下の順 */
 function quad(corners: [Vec3, Vec3, Vec3, Vec3], uvs: [Vec2, Vec2, Vec2, Vec2]) {
