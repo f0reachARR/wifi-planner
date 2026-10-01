@@ -4,7 +4,9 @@ import {
   Image,
   Loader,
   Modal,
+  NumberInput,
   SegmentedControl,
+  Select,
   SimpleGrid,
   Stack,
   Text,
@@ -13,7 +15,14 @@ import {
 import { Dropzone } from "@mantine/dropzone";
 import { IconFileUpload } from "@tabler/icons-react";
 import type { PlanImageInfo, PlanUploadResult } from "@wifi-planner/api-contract";
-import type { PlanImage } from "@wifi-planner/domain";
+import {
+  detectPaperSize,
+  PAPER_SIZES,
+  type PlanImage,
+  pointsToMm,
+  type ScaleCalibration,
+  scaleFromRatio,
+} from "@wifi-planner/domain";
 import { updateFloor } from "@wifi-planner/domain/ops";
 import { useState } from "react";
 import { api } from "../api/client";
@@ -27,6 +36,8 @@ const ACCEPT = {
   "image/jpeg": [".jpg", ".jpeg"],
 };
 const DPI_OPTIONS = ["100", "150", "200", "300"];
+/** 元の用紙を指定しない（PDF の紙面のままの縮尺とみなす） */
+const AS_PAGE = "page";
 
 /** 図面の取り込み（FR-2.1、FR-2.2） */
 export function PlanImportModal(props: { floor: FloorEntry | undefined; onClose: () => void }) {
@@ -45,8 +56,10 @@ function ImportBody({ floor, onDone }: { floor: FloorEntry; onDone: () => void }
   const [page, setPage] = useState(1);
   const [dpi, setDpi] = useState("200");
   const [rasterizing, setRasterizing] = useState(false);
+  const [ratio, setRatio] = useState<number | string>("");
+  const [nominal, setNominal] = useState(AS_PAGE);
 
-  const apply = (info: PlanImageInfo) => {
+  const apply = (info: PlanImageInfo, ratioScale?: ScaleCalibration) => {
     const current = floor.plan;
     // 同じ元ファイルのラスタ化し直しなら、図面座標は変わらないので回転、トリミング、スケールを残す（設計書 3 章）
     const sameSource = current?.sourceSha256 === info.sourceSha256;
@@ -59,6 +72,8 @@ function ImportBody({ floor, onDone }: { floor: FloorEntry; onDone: () => void }
       updateFloor(ydoc, floor.id, {
         plan,
         ...(sameSource ? {} : { scale: undefined, alignment: undefined }),
+        // 縮尺を指定したら、ラスタ化し直しでもその値で校正し直す
+        ...(ratioScale ? { scale: ratioScale } : {}),
       }),
     );
     onDone();
@@ -82,6 +97,17 @@ function ImportBody({ floor, onDone }: { floor: FloorEntry; onDone: () => void }
     }
   };
 
+  const pageInfo = pdf?.pages[page - 1];
+  const ratioScale =
+    pageInfo && typeof ratio === "number" && ratio > 0
+      ? scaleFromRatio({
+          ratio,
+          pageWidthPt: pageInfo.widthPt,
+          pageHeightPt: pageInfo.heightPt,
+          nominal: PAPER_SIZES.find((p) => p.name === nominal),
+        })
+      : undefined;
+
   const rasterize = async () => {
     if (!pdf) return;
     setRasterizing(true);
@@ -94,6 +120,7 @@ function ImportBody({ floor, onDone }: { floor: FloorEntry; onDone: () => void }
             dpi: Number(dpi),
           },
         ),
+        ratioScale,
       );
     } catch (e) {
       notifyError(e);
@@ -146,13 +173,49 @@ function ImportBody({ floor, onDone }: { floor: FloorEntry; onDone: () => void }
                 fallbackSrc=""
               />
               <Text size="xs" ta="center">
-                {n}（{Math.round((p.widthPt / 72) * 25.4)}×{Math.round((p.heightPt / 72) * 25.4)}{" "}
-                mm）
+                {n}（{paperLabel(p.widthPt, p.heightPt)}）
               </Text>
             </UnstyledButton>
           );
         })}
       </SimpleGrid>
+      {pageInfo && (
+        <Stack gap={4}>
+          <Group gap="xs" align="flex-end">
+            <NumberInput
+              label="縮尺（任意）"
+              description="入力するとスケールを校正済みにします"
+              leftSection={<Text size="sm">1 :</Text>}
+              leftSectionWidth={36}
+              min={1}
+              decimalScale={2}
+              w={180}
+              value={ratio}
+              onChange={setRatio}
+            />
+            <Select
+              label="縮尺の基準の用紙"
+              w={200}
+              allowDeselect={false}
+              data={[
+                {
+                  value: AS_PAGE,
+                  label: `PDF の紙面（${paperLabel(pageInfo.widthPt, pageInfo.heightPt)}）`,
+                },
+                ...PAPER_SIZES.map((p) => ({ value: p.name, label: `${p.name}（縮小前）` })),
+              ]}
+              value={nominal}
+              onChange={(v) => setNominal(v ?? AS_PAGE)}
+            />
+          </Group>
+          {ratioScale && (
+            <Text size="xs" c="dimmed">
+              紙面の幅 {Math.round(pointsToMm(pageInfo.widthPt))} mm が実際の{" "}
+              {ratioScale.distanceM.toFixed(2)} m に当たります
+            </Text>
+          )}
+        </Stack>
+      )}
       <Group justify="space-between">
         <Group gap="xs">
           <Text size="sm">解像度</Text>
@@ -172,4 +235,12 @@ function ImportBody({ floor, onDone }: { floor: FloorEntry; onDone: () => void }
       </Group>
     </Stack>
   );
+}
+
+/** ページの寸法を「A3 横、420×297 mm」のように表す */
+function paperLabel(widthPt: number, heightPt: number): string {
+  const mm = `${Math.round(pointsToMm(widthPt))}×${Math.round(pointsToMm(heightPt))} mm`;
+  const paper = detectPaperSize(widthPt, heightPt);
+  if (!paper) return mm;
+  return `${paper.name} ${widthPt >= heightPt ? "横" : "縦"}、${mm}`;
 }

@@ -51,6 +51,7 @@ import {
   metersPerUnit,
   planToPlan,
   planTransform,
+  ratioOfPdfScale,
   type Vec2,
 } from "@wifi-planner/domain";
 import {
@@ -640,6 +641,8 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
               <Text size="xs">
                 スケール：1 m ＝ 図面上 {(1 / mpu).toFixed(1)} 単位
                 {plan.dpi ? `（${plan.dpi} dpi）` : ""}
+                {/* PDF の図面座標はポイントなので、紙面上の縮尺に直せる */}
+                {plan.dpi ? `、紙面上 1:${formatRatio(ratioOfPdfScale(mpu))}` : ""}
               </Text>
             </Paper>
           )}
@@ -945,4 +948,8 @@ function CalibrationModal(props: {
       </form>
     </Modal>
   );
+}
+
+function formatRatio(n: number): string {
+  return n >= 10 ? String(Math.round(n)) : n.toFixed(1);
 }

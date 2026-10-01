@@ -70,3 +70,39 @@ test("図面の取り込み、スケール校正、回転、トリミング", as
     await bobPage.screenshot({ path: `${process.env.SCREENSHOT_DIR}/plan-bob.png` });
   }
 });
+
+test("PDF の取り込み時に縮尺でスケールを校正する", async ({ browser }, testInfo) => {
+  mkdirSync(testInfo.outputDir, { recursive: true });
+  const pdfPath = path.join(testInfo.outputDir, "plan.pdf");
+  writeFileSync(pdfPath, (await makeSyntheticPlanPdf()).pdf);
+
+  const alice = await newUserPage(browser, ADMIN.username, ADMIN.password);
+  const project = await apiOf(alice).post<{ id: string }>("/projects", { name: "縮尺" });
+  await alice.goto(`/projects/${project.id}`);
+  await alice.getByRole("button", { name: "追加" }).click();
+
+  const importWith = async (ratio: string, paper?: string) => {
+    const dialog = alice.getByRole("dialog");
+    await dialog.locator('input[type="file"]').setInputFiles(pdfPath);
+    // 合成図面は A3 横、1:100
+    await expect(dialog.getByRole("button", { name: "1 ページ" })).toContainText("A3 横");
+    await dialog.getByLabel("縮尺（任意）").fill(ratio);
+    if (paper) {
+      await dialog.getByRole("combobox", { name: "縮尺の基準の用紙" }).click();
+      await alice.getByRole("option", { name: paper }).click();
+    }
+    await dialog.getByRole("button", { name: "取り込む", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+  };
+
+  await alice.getByRole("button", { name: "図面を取り込む" }).click();
+  await importWith("100");
+  await expect(alice.getByText("スケールが未校正です")).toHaveCount(0);
+  await expect(alice.getByText(/スケール：1 m ＝ 図面上 28\.3 単位.*紙面上 1:100/)).toBeVisible();
+
+  // A1 の 1:100 を A3 に縮小した PDF として取り込み直すと、紙面上では約 1:200 になる
+  await alice.getByRole("button", { name: "図面の調整" }).click();
+  await alice.getByRole("button", { name: "図面を差し替え" }).click();
+  await importWith("100", "A1（縮小前）");
+  await expect(alice.getByText(/紙面上 1:200/)).toBeVisible();
+});
