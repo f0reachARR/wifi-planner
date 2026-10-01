@@ -27,6 +27,7 @@ export function ExtractionPanel(props: {
   const session = useSession();
   const x = props.extraction;
   const [method, setMethod] = useState<"trace" | "hough">("trace");
+  const [contour, setContour] = useState(false);
   const [autoThreshold, setAutoThreshold] = useState(true);
   const [threshold, setThreshold] = useState(128);
   const [minThicknessPx, setMinThickness] = useState(5);
@@ -38,6 +39,7 @@ export function ExtractionPanel(props: {
 
   const params: Partial<ExtractionParams> = {
     method,
+    preprocess: contour ? "contour" : "skeleton",
     threshold: autoThreshold ? undefined : threshold,
     minThicknessPx,
     minLineLengthPx,
@@ -76,6 +78,13 @@ export function ExtractionPanel(props: {
         />
         <Switch
           size="xs"
+          label="輪郭を抽出してから検出する"
+          description="壁を 2 本の細い線で描いた図面向け。壁の中心線ではなく両側の線が候補になります"
+          checked={contour}
+          onChange={(e) => setContour(e.currentTarget.checked)}
+        />
+        <Switch
+          size="xs"
           label="二値化の閾値を自動で決める"
           checked={autoThreshold}
           onChange={(e) => setAutoThreshold(e.currentTarget.checked)}
@@ -91,14 +100,16 @@ export function ExtractionPanel(props: {
           />
         )}
         <Group grow gap="xs">
-          <NumberInput
-            size="xs"
-            label="最小の壁の厚さ（px）"
-            min={1}
-            max={50}
-            value={minThicknessPx}
-            onChange={num(setMinThickness)}
-          />
+          {!contour && (
+            <NumberInput
+              size="xs"
+              label="最小の壁の厚さ（px）"
+              min={1}
+              max={50}
+              value={minThicknessPx}
+              onChange={num(setMinThickness)}
+            />
+          )}
           <NumberInput
             size="xs"
             label="最小の長さ（px）"
@@ -119,7 +130,10 @@ export function ExtractionPanel(props: {
           />
         )}
         <Text size="xs" c="dimmed">
-          最小の壁の厚さより細い線（寸法線、文字、ハッチング）は消えます。トリミングしていれば、その範囲だけを処理します。
+          {contour
+            ? "最小の長さの 2 倍より短い輪郭（文字、記号）は消えます。"
+            : "最小の壁の厚さより細い線（寸法線、文字、ハッチング）は消えます。"}
+          トリミングしていれば、その範囲だけを処理します。
         </Text>
         <Button size="xs" onClick={() => x.run(params)} loading={x.running}>
           抽出する

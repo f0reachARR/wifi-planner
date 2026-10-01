@@ -11,12 +11,15 @@ const ORIGIN = { x: 85, y: 80 };
 
 export type SyntheticPlan = {
   pdf: Uint8Array;
-  /** 正解の壁の中心線（ポイント、左上原点） */
+  /** 正解の壁の中心線（ポイント、左上原点）。hollowWalls なら壁の両側の線 */
   walls: Segment[];
   ptPerMeter: number;
 };
 
-export async function makeSyntheticPlanPdf(): Promise<SyntheticPlan> {
+/** hollowWalls にすると、壁を塗りつぶさず両側の 2 本の細線で描く */
+export async function makeSyntheticPlanPdf(
+  opts: { hollowWalls?: boolean } = {},
+): Promise<SyntheticPlan> {
   const doc = await PDFDocument.create();
   const page = doc.addPage([A3.width, A3.height]);
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -37,8 +40,22 @@ export async function makeSyntheticPlanPdf(): Promise<SyntheticPlan> {
   const wall = (x0: number, y0: number, x1: number, y1: number, thicknessM: number) => {
     const a = toPt(x0, y0);
     const b = toPt(x1, y1);
-    line(a, b, thicknessM * PT_PER_M);
-    walls.push({ a, b });
+    if (!opts.hollowWalls) {
+      line(a, b, thicknessM * PT_PER_M);
+      walls.push({ a, b });
+      return;
+    }
+    // 壁の向きに垂直な方向へ、厚さの半分ずつずらした 2 本の線
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    const h = (thicknessM * PT_PER_M) / 2;
+    const nx = (-(b.y - a.y) / len) * h;
+    const ny = ((b.x - a.x) / len) * h;
+    for (const sign of [-1, 1]) {
+      const fa = { x: a.x + nx * sign, y: a.y + ny * sign };
+      const fb = { x: b.x + nx * sign, y: b.y + ny * sign };
+      line(fa, fb, 0.5);
+      walls.push({ a: fa, b: fb });
+    }
   };
 
   // 外壁 36 m × 24 m

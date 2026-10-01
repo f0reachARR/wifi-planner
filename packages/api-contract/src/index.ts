@@ -122,6 +122,8 @@ export type ApModelEntry = z.infer<typeof ApModelEntry>;
 /** 壁の自動抽出の感度（FR-4.2）。長さの単位は図面の画像のピクセル */
 export const ExtractionParams = z.object({
   method: z.enum(["trace", "hough"]).default("trace"),
+  /** skeleton は塗りつぶしの壁の中心線、contour は輪郭を抽出してから検出し、壁の両側の線を得る */
+  preprocess: z.enum(["skeleton", "contour"]).default("skeleton"),
   threshold: z.number().min(0).max(255).optional(),
   minThicknessPx: z.number().min(1).max(50).default(5),
   minLineLengthPx: z.number().min(1).max(2000).default(40),

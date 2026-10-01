@@ -3,6 +3,7 @@ import { DEFAULT_PARAMS, extractWalls } from "./extract.js";
 import { evaluateRecall, makeSyntheticPlanPdf } from "./fixtures.js";
 import { mergeCollinear } from "./merge.js";
 import { rasterizePdfPage, readPdfInfo } from "./pdf.js";
+import { trimToSupport } from "./support.js";
 import { thinZhangSuen } from "./thinning.js";
 
 describe("細線化", () => {
@@ -35,6 +36,49 @@ describe("線分の結合", () => {
   });
 });
 
+describe("画素による裏付け", () => {
+  const w = 200;
+  const h = 40;
+  // y = 10 の横線（x = 20〜119）と、そこから離れた点在する画素
+  const mask = new Uint8Array(w * h);
+  for (let x = 20; x < 120; x++) mask[10 * w + x] = 255;
+  for (let x = 0; x < w; x += 15) mask[30 * w + x] = 255;
+  const opts = { radius: 2, maxGap: 10, minLength: 20, minCoverage: 0.8 };
+
+  it("線のないところまで伸びた線分を、画素のある区間に切り詰める", () => {
+    const [s, ...rest] = trimToSupport(
+      [{ a: { x: 0, y: 10 }, b: { x: 199, y: 10 } }],
+      mask,
+      w,
+      h,
+      opts,
+    );
+    expect(rest).toHaveLength(0);
+    expect(s!.a.x).toBeCloseTo(20, 5);
+    expect(s!.b.x).toBeCloseTo(119, 5);
+  });
+
+  it("向きのずれた線分を、画素に合わせて引き直す", () => {
+    const [s] = trimToSupport([{ a: { x: 20, y: 8 }, b: { x: 119, y: 12 } }], mask, w, h, opts);
+    expect(s!.a.y).toBeCloseTo(10, 5);
+    expect(s!.b.y).toBeCloseTo(10, 5);
+  });
+
+  it("何もないところを通る線分と、点在する画素を結んだだけの線分を捨てる", () => {
+    const r = trimToSupport(
+      [
+        { a: { x: 0, y: 20 }, b: { x: 199, y: 20 } },
+        { a: { x: 0, y: 30 }, b: { x: 199, y: 30 } },
+      ],
+      mask,
+      w,
+      h,
+      opts,
+    );
+    expect(r).toHaveLength(0);
+  });
+});
+
 describe("合成図面からの壁抽出", () => {
   it("A3 横の PDF を 200 dpi でラスタ化し、壁の大半を抽出する", async () => {
     const plan = await makeSyntheticPlanPdf();
@@ -57,6 +101,28 @@ describe("合成図面からの壁抽出", () => {
     expect(recall(trace)).toBeGreaterThanOrEqual(0.95);
     expect(recall(hough)).toBeGreaterThanOrEqual(0.8);
   }, 30_000);
+});
+
+describe("輪郭を抽出してからの検出", () => {
+  it("壁を 2 本の細線で描いた図面から、壁の両側の線を抽出する", async () => {
+    const plan = await makeSyntheticPlanPdf({ hollowWalls: true });
+    const page = await rasterizePdfPage(plan.pdf, 1, 200);
+    const k = 1 / page.unitsPerPx;
+    const truth = plan.walls.map((s) => ({
+      a: { x: s.a.x * k, y: s.a.y * k },
+      b: { x: s.b.x * k, y: s.b.y * k },
+    }));
+    const image = { data: page.rgba, width: page.width, height: page.height };
+    const recall = (r: { polylines: { x: number; y: number }[][] }) =>
+      evaluateRecall(truth, r.polylines, { maxDistance: 3, minCover: 0.8 }).recall;
+    // 細線は太さで除かれるので、輪郭を使わないとほとんど見つからない
+    const skeleton = await extractWalls(image, { ...DEFAULT_PARAMS, method: "hough" });
+    expect(recall(skeleton)).toBeLessThan(0.2);
+    for (const method of ["trace", "hough"] as const) {
+      const r = await extractWalls(image, { ...DEFAULT_PARAMS, method, preprocess: "contour" });
+      expect(recall(r)).toBeGreaterThanOrEqual(0.8);
+    }
+  }, 60_000);
 });
 
 describe("処理する範囲", () => {
