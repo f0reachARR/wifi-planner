@@ -15,7 +15,13 @@ const ROOT_SHAPE = {
   materials: "entities",
   apModels: "entities",
   floors: {
-    entities: { walls: "entities", aps: "entities", photoPins: "entities", holes: "entities" },
+    entities: {
+      walls: "entities",
+      aps: "entities",
+      photoPins: "entities",
+      holes: "entities",
+      areas: "entities",
+    },
   },
 } as const satisfies Shape;
 

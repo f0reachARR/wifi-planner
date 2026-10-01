@@ -28,11 +28,11 @@ function post(request: WorkerRequest) {
 
 let nextId = 1;
 
-/** 他のフロアの AP、壁、床スラブも計算に使うので全フロアを送る。写真のピンは計算に効かないので除く */
+/** 他のフロアの AP、壁、床スラブも計算に使うので全フロアを送る。写真のピンとエリアは計算に効かないので除く */
 const forCompute = (doc: ProjectDoc): ProjectDoc => ({
   ...doc,
   floors: Object.fromEntries(
-    Object.entries(doc.floors).map(([fid, f]) => [fid, { ...f, photoPins: {} }]),
+    Object.entries(doc.floors).map(([fid, f]) => [fid, { ...f, photoPins: {}, areas: {} }]),
   ),
 });
 

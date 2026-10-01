@@ -6,7 +6,7 @@ import { Vec2 } from "./geometry.js";
 // プロジェクトの Yjs 文書の形。文書では各要素を ID をキーにした Y.Map に入れるので、
 // ここでも要素そのものには ID を持たせず、Record のキーで表す。
 
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 const Id = z.string().min(1);
 const Color = z.string().regex(/^#[0-9a-fA-F]{6}$/);
@@ -163,6 +163,14 @@ export const Hole = z.object({
 });
 export type Hole = z.infer<typeof Hole>;
 
+/** 人数を割り当てる範囲（FR-11.1、設計書 5.5 節）。頂点は図面座標で、閉じた多角形として扱う */
+export const Area = z.object({
+  name: z.string(),
+  points: z.array(Vec2).min(3),
+  headcount: z.number().int().min(0),
+});
+export type Area = z.infer<typeof Area>;
+
 /**
  * あるフロアの図面座標 p を、別のフロアの図面座標 k·R(rotationDeg)·p + translation に移す変換。
  * R は図面座標（y 下向き）での回転で、正の角度は画面上の時計回り。k は 2 つのフロアのスケールの比で、
@@ -197,6 +205,8 @@ export const Floor = z.object({
   holes: z.record(Id, Hole).default({}),
   /** 床スラブの材質（FR-3.1、FR-7.6）。版 3 で足した。無いときの扱いは slabMaterialOf を参照 */
   slabMaterialId: Id.optional(),
+  /** エリア（FR-11.1）。版 5 で足した。holes と同じ理由で、無ければ空とみなす */
+  areas: z.record(Id, Area).default({}),
 });
 export type Floor = z.infer<typeof Floor>;
 
@@ -218,6 +228,8 @@ export const ProjectSettings = z.object({
    * 版 3 で足した。足す前の文書と統合したときに消えることがあるので、無ければ全フロアとみなす
    */
   crossFloorRange: z.number().int().min(0).nullable().default(null),
+  /** AP 1 台あたりの人数の目安（FR-11.3）。版 5 で足した。holes と同じ理由で、無ければ 30 とみなす */
+  peoplePerApTarget: z.number().positive().default(30),
 });
 export type ProjectSettings = z.infer<typeof ProjectSettings>;
 

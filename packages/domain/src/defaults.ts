@@ -21,6 +21,7 @@ export function defaultSettings(): ProjectSettings {
       hideBelow: false,
     },
     crossFloorRange: null,
+    peoplePerApTarget: 30,
   };
 }
 

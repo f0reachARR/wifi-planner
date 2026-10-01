@@ -47,6 +47,7 @@ async function projectWithPlan() {
     aps: {},
     photoPins: {},
     holes: {},
+    areas: {},
   };
   await t.docs.putState(project.id, encodeProjectDoc(doc));
   return { alice: alice.api, project, doc, imageSha: uploaded.plan.imageSha256 };

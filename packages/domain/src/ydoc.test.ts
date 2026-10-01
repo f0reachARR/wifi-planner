@@ -24,6 +24,17 @@ describe("Y.Doc との変換", () => {
       aps: {},
       photoPins: {},
       holes: {},
+      areas: {
+        a1: {
+          name: "会議室",
+          points: [
+            { x: 0, y: 0 },
+            { x: 10, y: 0 },
+            { x: 10, y: 10 },
+          ],
+          headcount: 12,
+        },
+      },
     };
     const ydoc = new Y.Doc();
     Y.applyUpdate(ydoc, encodeProjectDoc(doc));

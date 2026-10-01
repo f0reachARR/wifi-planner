@@ -6,19 +6,24 @@ import {
   type Vec2,
 } from "@wifi-planner/domain";
 import {
+  addArea,
   addHole,
   addWall,
   deleteAps,
+  deleteAreas,
   deleteHoles,
   deleteWalls,
   moveAps,
+  moveAreas,
   moveHoles,
   moveWalls,
   newId,
+  readArea,
   readHole,
   readWall,
   splitWallAt,
   updateAp,
+  updateArea,
   updateHole,
   updateWall,
 } from "@wifi-planner/domain/ops";
@@ -27,6 +32,7 @@ import { useSession } from "../../collab/react";
 import { notifyError } from "../../notify";
 import { AP_ARROW_PX, type ApEntry } from "../aps/ApLayer";
 import { azimuthToPlanDir, planDirToAzimuth } from "../aps/azimuth";
+import type { AreaEntry } from "../areas/stats";
 import type { CanvasTool, PointerInfo, ToolController } from "../canvas/PlanCanvas";
 import {
   type HoleEntry,
@@ -65,9 +71,9 @@ type Gesture =
     }
   | {
       kind: "vertex";
-      /** 頂点を動かしている壁または吹き抜けの ID */
+      /** 頂点を動かしている壁、吹き抜け、エリアの ID */
       wallId: string;
-      target: "wall" | "hole";
+      target: "wall" | "hole" | "area";
       index: number;
       point: Vec2;
       snap: SnapKind;
@@ -83,7 +89,7 @@ const OPENING_MATERIAL: Record<OpeningKind, string> = {
 };
 
 /**
- * 2D ビューの編集の道具（FR-4.4〜4.6、FR-4.8、FR-6.1）。壁と AP と吹き抜けを同じ選択で扱う。
+ * 2D ビューの編集の道具（FR-4.4〜4.6、FR-4.8、FR-6.1、FR-11.1）。壁と AP と吹き抜けとエリアを同じ選択で扱う。
  * 選択はユーザーごとのローカル状態とし、awareness でほかのユーザーに見せる。ID は UUID なので種類が違っても重ならない。
  */
 export function useWallTools(opts: {
@@ -91,6 +97,7 @@ export function useWallTools(opts: {
   walls: WallEntry[];
   aps: ApEntry[];
   holes: HoleEntry[];
+  areas: AreaEntry[];
   tool: CanvasTool;
   metersPerUnit: number | undefined;
   /** 図面の回転。AP の方位角と図面座標の向きを相互に直すのに使う */
@@ -101,7 +108,7 @@ export function useWallTools(opts: {
   /** AP の道具でクリックしたとき。置いた AP の ID を返す */
   onPlaceAp?: (p: Vec2) => string | undefined;
 }) {
-  const { floorId, walls, aps, holes, tool } = opts;
+  const { floorId, walls, aps, holes, areas, tool } = opts;
   const session = useSession();
   const readOnly = session.readOnly;
   const [selection, setSelection] = useState<string[]>([]);
@@ -127,9 +134,10 @@ export function useWallTools(opts: {
       ...walls.map((w) => w.id),
       ...aps.map((a) => a.id),
       ...holes.map((h) => h.id),
+      ...areas.map((a) => a.id),
     ]);
     if (selection.some((id) => !ids.has(id))) setSelection((s) => s.filter((id) => ids.has(id)));
-  }, [walls, aps, holes, selection]);
+  }, [walls, aps, holes, areas, selection]);
 
   const hitTestAp = (p: Vec2, px: number) => {
     let best: ApEntry | undefined;
@@ -179,15 +187,22 @@ export function useWallTools(opts: {
     const pts = points.filter(
       (p, i) => i === 0 || p.x !== points[i - 1]!.x || p.y !== points[i - 1]!.y,
     );
-    if (tool === "hole") {
-      // 吹き抜けは閉じた多角形として持つので、最初の点に戻った点は除く
+    if (tool === "hole" || tool === "area") {
+      // 吹き抜けとエリアは閉じた多角形として持つので、最初の点に戻った点は除く
       const first = pts[0];
       const last = pts.at(-1);
       if (pts.length > 1 && first && last && first.x === last.x && first.y === last.y) pts.pop();
       if (pts.length >= 3) {
         let id = "";
         session.mutate((ydoc) => {
-          id = addHole(ydoc, floorId, { points: pts });
+          id =
+            tool === "hole"
+              ? addHole(ydoc, floorId, { points: pts })
+              : addArea(ydoc, floorId, {
+                  name: nextAreaName(areas),
+                  points: pts,
+                  headcount: 0,
+                });
         });
         if (id) setSelection([id]);
       }
@@ -210,6 +225,7 @@ export function useWallTools(opts: {
       deleteWalls(ydoc, floorId, selection);
       deleteAps(ydoc, floorId, selection);
       deleteHoles(ydoc, floorId, selection);
+      deleteAreas(ydoc, floorId, selection);
     });
     setSelection([]);
   };
@@ -245,7 +261,7 @@ export function useWallTools(opts: {
     },
   };
 
-  if ((tool === "wall" || tool === "hole") && !readOnly) {
+  if ((tool === "wall" || tool === "hole" || tool === "area") && !readOnly) {
     controller.cursor = "crosshair";
     controller.onMove = (e) => {
       const s = snap(e, drawing.at(-1));
@@ -301,7 +317,7 @@ export function useWallTools(opts: {
   if (tool === "select") {
     controller.cursor = "default";
     controller.onDown = (e) => {
-      // 選んだ AP が 1 つなら回転のハンドルを、壁か吹き抜けが 1 つなら頂点のハンドルを先に調べる
+      // 選んだ AP が 1 つなら回転のハンドルを、壁か吹き抜けかエリアが 1 つなら頂点のハンドルを先に調べる
       if (!readOnly && selection.length === 1) {
         const ap = aps.find((a) => a.id === selection[0]);
         if (ap) {
@@ -317,7 +333,8 @@ export function useWallTools(opts: {
         }
         const wall = walls.find((w) => w.id === selection[0]);
         const hole = holes.find((h) => h.id === selection[0]);
-        const target = wall ?? hole;
+        const area = areas.find((a) => a.id === selection[0]);
+        const target = wall ?? hole ?? area;
         const index =
           target?.points.findIndex((p) => Math.hypot(p.x - e.p.x, p.y - e.p.y) <= HIT_PX * e.px) ??
           -1;
@@ -325,7 +342,7 @@ export function useWallTools(opts: {
           setGesture({
             kind: "vertex",
             wallId: target.id,
-            target: wall ? "wall" : "hole",
+            target: wall ? "wall" : hole ? "hole" : "area",
             index,
             point: target.points[index]!,
             snap: "none",
@@ -333,12 +350,13 @@ export function useWallTools(opts: {
           return;
         }
       }
-      // AP は壁の上に置かれることが多いので、先に調べる。吹き抜けの輪郭は壁と重なりやすいので最後に調べる
+      // AP は壁の上に置かれることが多いので、先に調べる。吹き抜けとエリアの輪郭は壁と重なりやすいので後に調べる
       const apHit = hitTestAp(e.p, e.px);
       const hit = apHit ? undefined : hitTestWall(walls, e.p, HIT_PX * e.px);
       const holeHit = apHit || hit ? undefined : hitTestHole(holes, e.p, HIT_PX * e.px);
-      if (apHit || hit || holeHit) {
-        const id = apHit ? apHit.id : hit ? hit.wall.id : holeHit!.id;
+      const areaHit = apHit || hit || holeHit ? undefined : hitTestHole(areas, e.p, HIT_PX * e.px);
+      if (apHit || hit || holeHit || areaHit) {
+        const id = apHit ? apHit.id : hit ? hit.wall.id : (holeHit ?? areaHit)!.id;
         if (e.shift || e.mod) {
           setSelection((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
           return;
@@ -365,11 +383,11 @@ export function useWallTools(opts: {
         setGesture({ ...gesture, dx, dy, moved });
         if (moved) session.setPresence({ drag: { wallIds: gesture.ids, dx, dy } });
       } else if (gesture.kind === "vertex") {
-        const points = (gesture.target === "wall" ? walls : holes).find(
-          (w) => w.id === gesture.wallId,
-        )?.points;
+        const points = (
+          gesture.target === "wall" ? walls : gesture.target === "hole" ? holes : areas
+        ).find((w) => w.id === gesture.wallId)?.points;
         const neighbor =
-          gesture.target === "hole"
+          gesture.target !== "wall"
             ? points?.at(gesture.index - 1)
             : points?.[gesture.index === 0 ? 1 : gesture.index - 1];
         const s = snap(e, neighbor, new Set([gesture.wallId]));
@@ -404,6 +422,10 @@ export function useWallTools(opts: {
               ...wallsInPolygon(walls, polygon),
               ...aps.filter((a) => pointInPolygon(a.position, polygon)).map((a) => a.id),
               ...holesInPolygon(holes, polygon),
+              // エリアは部屋を覆うので、触れるだけで選ぶと壁を囲むたびに選ばれる。すべての頂点が範囲の中にあるものだけを選ぶ
+              ...areas
+                .filter((a) => a.points.every((p) => pointInPolygon(p, polygon)))
+                .map((a) => a.id),
             ];
         setSelection((s) => (gesture.additive ? [...new Set([...s, ...picked])] : picked));
       } else if (gesture.kind === "move") {
@@ -412,6 +434,7 @@ export function useWallTools(opts: {
             moveWalls(ydoc, floorId, gesture.ids, gesture.dx, gesture.dy);
             moveAps(ydoc, floorId, gesture.ids, gesture.dx, gesture.dy);
             moveHoles(ydoc, floorId, gesture.ids, gesture.dx, gesture.dy);
+            moveAreas(ydoc, floorId, gesture.ids, gesture.dx, gesture.dy);
           });
           session.setPresence({ drag: undefined });
         } else {
@@ -429,6 +452,14 @@ export function useWallTools(opts: {
           if (!hole) return;
           updateHole(ydoc, floorId, gesture.wallId, {
             points: hole.points.map((p, i) => (i === gesture.index ? gesture.point : p)),
+          });
+        });
+      } else if (gesture.kind === "vertex" && gesture.target === "area") {
+        session.mutate((ydoc) => {
+          const area = readArea(ydoc, floorId, gesture.wallId);
+          if (!area) return;
+          updateArea(ydoc, floorId, gesture.wallId, {
+            points: area.points.map((p, i) => (i === gesture.index ? gesture.point : p)),
           });
         });
       } else if (gesture.kind === "vertex") {
@@ -450,12 +481,12 @@ export function useWallTools(opts: {
 
   const drafts: WallDrafts = {
     drawing:
-      (tool === "wall" || tool === "hole") && (drawing.length > 0 || hover)
+      (tool === "wall" || tool === "hole" || tool === "area") && (drawing.length > 0 || hover)
         ? {
             points: drawing,
             hover: hover?.point,
             snap: hover?.snap ?? "none",
-            closed: tool === "hole",
+            closed: tool !== "wall",
           }
         : undefined,
     marquee: gesture?.kind === "marquee" ? marqueePolygon(gesture, selectMode) : undefined,
@@ -495,4 +526,12 @@ function marqueePolygon(g: Extract<Gesture, { kind: "marquee" }>, mode: SelectMo
     width: Math.abs(end.x - g.start.x),
     height: Math.abs(end.y - g.start.y),
   });
+}
+
+/** 「エリア 3」のような、使われていない次の番号の名前 */
+function nextAreaName(areas: readonly AreaEntry[]): string {
+  const names = new Set(areas.map((a) => a.name));
+  let n = areas.length + 1;
+  while (names.has(`エリア ${n}`)) n++;
+  return `エリア ${n}`;
 }
