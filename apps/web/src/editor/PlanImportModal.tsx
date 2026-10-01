@@ -50,8 +50,9 @@ function ImportBody({ floor, onDone }: { floor: FloorEntry; onDone: () => void }
 
   const apply = (info: PlanImageInfo, ratioScale?: ScaleCalibration) => {
     const current = floor.plan;
-    // 同じ元ファイルのラスタ化し直しなら、図面座標は変わらないので回転、トリミング、スケールを残す（設計書 3 章）
-    const sameSource = current?.sourceSha256 === info.sourceSha256;
+    // 同じ元ファイルの同じページのラスタ化し直しなら、図面座標は変わらないので回転、トリミング、スケールを残す（設計書 3 章）。
+    // 同じ PDF でも別のページなら、別の図面として扱う
+    const sameSource = current?.sourceSha256 === info.sourceSha256 && current.page === info.page;
     const plan: PlanImage = {
       ...info,
       rotationDeg: sameSource ? current.rotationDeg : 0,
@@ -117,7 +118,7 @@ function ImportBody({ floor, onDone }: { floor: FloorEntry; onDone: () => void }
       <Stack>
         {floor.plan && (
           <Text size="sm" c="dimmed">
-            別のファイルに差し替えると、スケールと、このフロアに関わる位置合わせの設定は消えます。
+            別のファイルや別のページに差し替えると、スケールと、このフロアに関わる位置合わせの設定は消えます。
           </Text>
         )}
         <Dropzone onDrop={onDrop} accept={ACCEPT} multiple={false} loading={uploading}>
