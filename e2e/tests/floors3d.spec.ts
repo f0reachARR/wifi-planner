@@ -186,18 +186,29 @@ test("フロアの位置合わせ、重ね表示、疑似 3D ビュー", async (
       return Math.hypot(back.x - ap.x, back.y - ap.y);
     })
     .toBeLessThan(2);
-  // 方位角とチルトのつまみはそれぞれ 1 本の軸のまわりの輪だけ。輪の手前の端をつかんで横に動かすと値が変わる（2D の画面で確かめる）
+  // 方位角とチルトのつまみはそれぞれ 1 本の軸のまわりの輪だけ。輪の手前の端をつかんで横に動かすと値が変わる（2D の画面で確かめる）。
+  // 90° 単位のスナップを切って、自由な角度に回す
   await page.mouse.click(ap.x, ap.y);
-  for (const kind of ["方位角", "チルト"]) {
-    await page.getByRole("radiogroup", { name: "つまみの種類" }).getByText(kind).click();
+  const dragRing = async () => {
     const ring = await findColor(page, RING_COLOR, "lowest");
-    if (process.env.SCREENSHOT_DIR)
-      await page.screenshot({ path: `${process.env.SCREENSHOT_DIR}/view3d-ap-${kind}.png` });
     await page.mouse.move(ring.x, ring.y - 1);
     await page.mouse.down();
     await page.mouse.move(ring.x + 40, ring.y - 1, { steps: 10 });
     await page.mouse.up();
+  };
+  const snapSwitch = page.getByRole("switch", { name: "90° 単位で回す" });
+  for (const kind of ["方位角", "チルト"]) {
+    await page.getByRole("radiogroup", { name: "つまみの種類" }).getByText(kind).click();
+    await expect(snapSwitch).toBeChecked();
+    await snapSwitch.uncheck({ force: true });
+    if (process.env.SCREENSHOT_DIR)
+      await page.screenshot({ path: `${process.env.SCREENSHOT_DIR}/view3d-ap-${kind}.png` });
+    await dragRing();
+    await snapSwitch.check({ force: true });
   }
+  // スナップを入れて方位角を回すと、回し始めの角度によらず方位角そのものが 90° の倍数に揃う
+  await page.getByRole("radiogroup", { name: "つまみの種類" }).getByText("方位角").click();
+  await dragRing();
   if (process.env.SCREENSHOT_DIR)
     await page.screenshot({ path: `${process.env.SCREENSHOT_DIR}/view3d-ap-rotated.png` });
   await page.keyboard.press("Escape");
@@ -255,6 +266,6 @@ test("フロアの位置合わせ、重ね表示、疑似 3D ビュー", async (
   // 3D ビューで回した AP の方位角とチルトが、2D の画面にも出る
   await page.getByText("1F", { exact: true }).click();
   await click(page, 0.5, 0.5);
-  await expect(page.getByLabel("方位角")).not.toHaveValue("0°");
+  await expect(page.getByLabel("方位角")).toHaveValue(/^(0|90|180|270)°$/);
   await expect(page.getByLabel("チルト")).not.toHaveValue("0°");
 });
