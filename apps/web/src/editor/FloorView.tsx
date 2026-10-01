@@ -75,9 +75,10 @@ import { ApTableModal } from "./aps/ApTableModal";
 import { type CanvasTool, PlanCanvas, type ToolController } from "./canvas/PlanCanvas";
 import { CandidateLayer } from "./extraction/CandidateLayer";
 import { ExtractionPanel } from "./extraction/ExtractionPanel";
+import { useCandidateSelection } from "./extraction/useCandidateSelection";
 import { useExtraction } from "./extraction/useExtraction";
 import { type FloorEntry, sortedFloors } from "./FloorPanel";
-import { hitTestWall, type WallEntry } from "./geometry";
+import type { WallEntry } from "./geometry";
 import { HeatmapLayer } from "./heatmap/HeatmapLayer";
 import { HoverReadout } from "./heatmap/HoverReadout";
 import { createHoverStore } from "./heatmap/hover";
@@ -191,6 +192,7 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
   // 壁の自動抽出（FR-4.1〜4.3）
   const extraction = useExtraction(session.projectId, floor.plan);
   const [extractionOpen, setExtractionOpen] = useState(false);
+  const candidateSelection = useCandidateSelection(extraction.candidates, extraction);
   // 現場写真のピン（FR-9.1〜9.3）
   const pins: PinEntry[] = useMemo(
     () => Object.entries(floor.photoPins).map(([id, p]) => ({ ...p, id })),
@@ -220,19 +222,7 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
       : undefined;
 
   const candidateController: ToolController | undefined =
-    extractionOpen && extraction.candidates.length > 0
-      ? {
-          cursor: "pointer",
-          onDown: (e) => {
-            const hit = hitTestWall(
-              extraction.candidates.map((c) => ({ ...c, materialId: "", openings: [] })),
-              e.p,
-              8 * e.px,
-            );
-            if (hit) extraction.toggle(hit.wall.id);
-          },
-        }
-      : undefined;
+    extractionOpen && extraction.candidates.length > 0 ? candidateSelection.controller : undefined;
 
   // フロア間の位置合わせと重ね表示（FR-3.2、FR-3.3）。重ね表示の設定はユーザーごとのローカル状態
   const placements = useMemo(() => floorPlacements(doc?.floors ?? {}), [doc?.floors]);
@@ -381,6 +371,7 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                 <CandidateLayer
                   candidates={extraction.candidates}
                   picked={extraction.picked}
+                  marquee={candidateSelection.marquee}
                   px={px}
                 />
               )}

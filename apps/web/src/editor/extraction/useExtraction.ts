@@ -59,6 +59,17 @@ export function useExtraction(projectId: string, plan: PlanImage | undefined) {
       return next;
     });
 
+  /** 複数の候補をまとめて選ぶ、または選択を外す */
+  const setPickedMany = (ids: readonly string[], on: boolean) =>
+    setPicked((s) => {
+      const next = new Set(s);
+      for (const id of ids) {
+        if (on) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+
   /** 候補を一覧から外す（採用した候補と却下した候補） */
   const remove = (ids: ReadonlySet<string>) => {
     setCandidates((cs) => cs.filter((c) => !ids.has(c.id)));
@@ -72,6 +83,7 @@ export function useExtraction(projectId: string, plan: PlanImage | undefined) {
     elapsedMs,
     run,
     toggle,
+    setPicked: setPickedMany,
     remove,
     pickAll: () => setPicked(new Set(candidates.map((c) => c.id))),
     pickNone: () => setPicked(new Set()),

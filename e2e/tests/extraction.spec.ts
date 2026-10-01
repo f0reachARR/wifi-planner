@@ -35,8 +35,24 @@ test("壁の自動抽出、候補の個別と一括の採用", async ({ browser 
   await expect(summary).toHaveText(new RegExp(`選択中 ${total} 本`));
   await page.getByRole("button", { name: "選択を外す" }).click();
 
-  // 候補の上をクリックして選ぶ。どこに候補があるかは図面の描き方で決まるので、外壁の左辺を狙う
+  // 左ドラッグで範囲に触れる候補を選び、同じ範囲の右ドラッグで選択を外す。
+  // キャンバスの左上には道具のバーが重なるので、その下の余白から図面の左半分を囲む
   const box = (await page.locator("canvas").first().boundingBox())!;
+  const drag = async (button: "left" | "right") => {
+    await page.mouse.move(box.x + box.width * 0.05, box.y + box.height * 0.2);
+    await page.mouse.down({ button });
+    await page.mouse.move(box.x + box.width * 0.4, box.y + box.height * 0.6, { steps: 5 });
+    await page.mouse.up({ button });
+  };
+  await drag("left");
+  const pickedCount = async () =>
+    Number((await summary.textContent())!.match(/選択中 (\d+) 本/)![1]);
+  await expect.poll(pickedCount).toBeGreaterThan(0);
+  expect(await pickedCount()).toBeLessThan(total);
+  await drag("right");
+  await expect(summary).toHaveText(/選択中 0 本/);
+
+  // 候補の上をクリックして選ぶ。どこに候補があるかは図面の描き方で決まるので、外壁の左辺を狙う
   let picked = false;
   for (let fx = 0.05; fx < 0.3 && !picked; fx += 0.005) {
     await page.mouse.click(box.x + box.width * fx, box.y + box.height * 0.5);

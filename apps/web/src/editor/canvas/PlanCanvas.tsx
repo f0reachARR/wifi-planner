@@ -42,11 +42,15 @@ export type PointerInfo = {
   alt: boolean;
   /** ブラウザが数えた連続クリックの回数。離れた位置のクリックは数えない */
   clickCount: number;
+  /** 押したボタン（0 が左、2 が右）。移動中は最後に押したボタン */
+  button: number;
 };
 
 /** パン、スケール校正、トリミング以外の道具の操作 */
 export type ToolController = {
   cursor?: string;
+  /** 右ボタンの操作も受け取る。受け取らなければ右ボタンは無視する */
+  rightButton?: boolean;
   onDown?(e: PointerInfo): void;
   onMove?(e: PointerInfo): void;
   onUp?(e: PointerInfo): void;
@@ -200,6 +204,7 @@ export function PlanCanvas(props: {
     mod: e.ctrlKey || e.metaKey,
     alt: e.altKey,
     clickCount: e.detail,
+    button: e.button,
   });
 
   const onMouseDown = (e: KonvaEventObject<MouseEvent>) => {
@@ -212,10 +217,13 @@ export function PlanCanvas(props: {
       setPanning({ start: pointer, view });
       return;
     }
-    if (e.evt.button !== 0) return;
+    const right = e.evt.button === 2;
+    if (e.evt.button !== 0 && !(right && controller?.rightButton)) return;
     const p = pointerPlan();
     if (!p) return;
-    if (tool === "calibrate" || tool === "align") {
+    if (right) {
+      controller?.onDown?.(info(e.evt, p));
+    } else if (tool === "calibrate" || tool === "align") {
       if (!draft) setDraft({ a: p, b: p });
       else {
         if (tool === "calibrate") handlers?.onCalibrate?.(draft.a, p);

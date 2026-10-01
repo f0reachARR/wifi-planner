@@ -167,7 +167,7 @@ export function ExtractionPanel(props: {
             <Text size="xs" aria-live="polite">
               候補 {x.candidates.length} 本（選択中 {x.picked.size} 本）
               {x.elapsedMs !== undefined && `、${(x.elapsedMs / 1000).toFixed(1)} 秒`}
-              。候補をクリックすると選択を切り替えます。
+              。候補をクリックすると選択を切り替え、左ドラッグで範囲に触れる候補を選び、右ドラッグで選択を外します。
             </Text>
             <Group gap={4}>
               <Button size="compact-xs" variant="subtle" onClick={x.pickAll}>

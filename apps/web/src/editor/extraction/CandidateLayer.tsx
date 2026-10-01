@@ -1,12 +1,15 @@
 import { Group, Line } from "react-konva";
+import type { CandidateMarquee } from "./useCandidateSelection";
 import type { Candidate } from "./useExtraction";
 
-/** 抽出した壁の候補。選んだ候補は実線、外した候補は薄い点線で描く */
+/** 抽出した壁の候補。選んだ候補は実線、外した候補は薄い点線で描く。範囲選択中はその範囲も描く */
 export function CandidateLayer(props: {
   candidates: Candidate[];
   picked: ReadonlySet<string>;
+  marquee?: CandidateMarquee;
   px: number;
 }) {
+  const m = props.marquee;
   return (
     <Group listening={false}>
       {props.candidates.map((c) => {
@@ -24,6 +27,17 @@ export function CandidateLayer(props: {
           />
         );
       })}
+      {m && (
+        // 選ぶ範囲は候補と同じ橙、外す範囲は灰色
+        <Line
+          points={m.polygon.flatMap((p) => [p.x, p.y])}
+          closed
+          stroke={m.pick ? "#e8590c" : "#868e96"}
+          strokeWidth={1.5 * props.px}
+          dash={[6 * props.px, 4 * props.px]}
+          fill={m.pick ? "rgba(232,89,12,0.08)" : "rgba(134,142,150,0.12)"}
+        />
+      )}
     </Group>
   );
 }
