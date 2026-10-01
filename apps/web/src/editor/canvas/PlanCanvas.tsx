@@ -118,7 +118,7 @@ const normalizeRect = (a: Vec2, b: Vec2): Rect => ({
 export type CanvasHandlers = {
   /** スケール校正の 2 点目を置いたとき */
   onCalibrate?: (a: Vec2, b: Vec2) => void;
-  /** フロア間の位置合わせの基準点の 2 点目を置いたとき */
+  /** フロア間の位置合わせの基準点の 2 点目を置いたとき（FR-3.2） */
   onAlign?: (a: Vec2, b: Vec2) => void;
   /** トリミングの範囲を決めたとき */
   onCrop?: (rect: Rect) => void;
@@ -138,6 +138,8 @@ export function PlanCanvas(props: {
    * Alt を押している間はスナップしない
    */
   snap?: (p: Vec2, px: number, previous?: Vec2) => SnapResult;
+  /** 自分のカーソルの位置をほかのユーザーに見せるか。表示中のフロアと別の図面を描くときは false。既定は true */
+  shareCursor?: boolean;
   /** カーソルの図面座標。キャンバスの外に出たら undefined */
   onPointerMove?: (p: Vec2 | undefined) => void;
   /** 図面座標で描く重ね描き。引数は画面の 1 ピクセルが図面座標でいくつか */
@@ -182,6 +184,7 @@ export function PlanCanvas(props: {
     last: 0,
   });
   const sendCursor = (p: Vec2 | undefined) => {
+    if (props.shareCursor === false) return;
     const t = cursorThrottle.current;
     clearTimeout(t.timer);
     const send = () => {
@@ -370,30 +373,6 @@ export function PlanCanvas(props: {
                     dash={[6 * px, 4 * px]}
                     listening={false}
                   />
-                )}
-                {tool === "align" && floor.alignment && !draft && (
-                  <>
-                    {(["a", "b"] as const).map((k) => (
-                      <Group
-                        key={k}
-                        x={floor.alignment![k].x}
-                        y={floor.alignment![k].y}
-                        scaleX={px}
-                        scaleY={px}
-                        rotation={-rotation}
-                        listening={false}
-                      >
-                        <Circle radius={6} stroke="#9c36b5" strokeWidth={2} />
-                        <Text
-                          text={k === "a" ? "基準点 1" : "基準点 2"}
-                          x={8}
-                          y={-6}
-                          fontSize={12}
-                          fill="#9c36b5"
-                        />
-                      </Group>
-                    ))}
-                  </>
                 )}
                 {(tool === "calibrate" || tool === "align") && draft && (
                   <>

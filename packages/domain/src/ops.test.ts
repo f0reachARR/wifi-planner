@@ -6,6 +6,7 @@ import {
   addFloor,
   addHole,
   addWall,
+  clearPlanOffsets,
   defaultRadios,
   deleteFloor,
   deleteHoles,
@@ -77,6 +78,26 @@ describe("フロアの操作", () => {
 
     deleteFloor(ydoc, f2);
     expect(Object.keys(readProjectDoc(ydoc).floors)).toEqual([f1]);
+  });
+
+  it("フロアの位置合わせを、そのフロアに合わせたほかのフロアのものも含めて消す", () => {
+    const ydoc = fresh();
+    const [f1, f2, f3, f4] = ["1F", "2F", "3F", "4F"].map((name, i) =>
+      addFloor(ydoc, { name, elevationM: i * 3, heightM: 3 }),
+    ) as [string, string, string, string];
+    const offset = (floorId: string) => ({
+      planOffset: { floorId, rotationDeg: 0, translation: { x: 0, y: 0 } },
+    });
+    updateFloor(ydoc, f2, offset(f1));
+    updateFloor(ydoc, f3, offset(f2));
+    updateFloor(ydoc, f4, offset(f1));
+    clearPlanOffsets(ydoc, f2);
+    const floors = readProjectDoc(ydoc).floors;
+    expect(floors[f2]?.planOffset).toBeUndefined();
+    expect(floors[f3]?.planOffset).toBeUndefined();
+    expect(floors[f4]?.planOffset?.floorId).toBe(f1);
+    deleteFloor(ydoc, f1);
+    expect(readProjectDoc(ydoc).floors[f4]?.planOffset).toBeUndefined();
   });
 
   it("UndoManager は自分の origin の変更だけを戻す", () => {

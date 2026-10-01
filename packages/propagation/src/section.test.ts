@@ -29,7 +29,7 @@ const floor = (order: number, over: Partial<Floor> = {}): Floor => ({
     rotationDeg: 0,
   },
   scale: { a: { x: 0, y: 0 }, b: { x: 10, y: 0 }, distanceM: 1 },
-  alignment: { a: { x: 0, y: 0 }, b: { x: 100, y: 0 } },
+  planOffset: { floorId: "f1", rotationDeg: 0, translation: { x: 0, y: 0 } },
   walls: {},
   aps: {},
   photoPins: {},
@@ -89,7 +89,7 @@ function column(doc: ProjectDoc) {
 
 describe("縦の断面", () => {
   it("断面は計算に含めるフロアの外接矩形の中に、最も低い床面から最も高い天井まで置く", () => {
-    const doc = project({ f1: floor(0), f2: floor(1), f3: floor(2, { alignment: undefined }) });
+    const doc = project({ f1: floor(0), f2: floor(1), f3: floor(2, { planOffset: undefined }) });
     const bounds = sectionBounds(doc)!;
     expect(bounds).toEqual({ minX: 0, minY: -10, maxX: 20, maxY: 0, bottom: 0, top: 6 });
     expect(sectionOffsetRange(bounds, 0)).toEqual([-5, 5]);
@@ -125,7 +125,7 @@ describe("縦の断面", () => {
     const doc = project({
       f1: floor(0, { aps: { a: ap } }),
       f2: floor(1),
-      f3: floor(2, { alignment: undefined }),
+      f3: floor(2, { planOffset: undefined }),
     });
     doc.settings.crossFloorRange = 0;
     const at = column(doc);

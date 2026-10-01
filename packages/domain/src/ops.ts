@@ -79,7 +79,7 @@ export function updateFloor(
   patch: Partial<
     Pick<
       Floor,
-      "name" | "elevationM" | "heightM" | "plan" | "scale" | "alignment" | "slabMaterialId"
+      "name" | "elevationM" | "heightM" | "plan" | "scale" | "planOffset" | "slabMaterialId"
     >
   >,
 ): void {
@@ -87,7 +87,21 @@ export function updateFloor(
   if (floor) updateFields(floor, patch);
 }
 
+/**
+ * フロアの位置合わせの結果（FR-3.2）を、そのフロアのものと、ほかのフロアをそのフロアに合わせたものの両方とも消す。
+ * 図面を別のファイルに差し替えると図面座標の意味が変わり、どちらも誤った位置を指すようになるため。
+ * フロアを消すときにも使う
+ */
+export function clearPlanOffsets(ydoc: Y.Doc, floorId: string): void {
+  floorsMap(ydoc).forEach((floor, id) => {
+    const offset = floor.get("planOffset") as { floorId?: string } | undefined;
+    if (offset && (id === floorId || offset.floorId === floorId)) floor.delete("planOffset");
+  });
+}
+
 export function deleteFloor(ydoc: Y.Doc, floorId: string): void {
+  // そのフロアに合わせたほかのフロアは、相手がいなくなるので位置合わせの結果を消す
+  clearPlanOffsets(ydoc, floorId);
   floorsMap(ydoc).delete(floorId);
 }
 

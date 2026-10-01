@@ -198,10 +198,14 @@ describe("3D ビューでの AP と断面の操作", () => {
     photoPins: {},
     holes: {},
   };
-  // 2F は基準点で位置を合わせ、基準フロアに対して回っている
+  // 2F は位置を合わせ、基準フロアに対して回っている
   const placements = floorPlacements({
-    a: { ...base, alignment: { a: { x: 0, y: 0 }, b: { x: 10, y: 0 } } },
-    b: { ...base, order: 1, alignment: { a: { x: 5, y: 5 }, b: { x: 5, y: 15 } } },
+    a: base,
+    b: {
+      ...base,
+      order: 1,
+      planOffset: { floorId: "a", rotationDeg: -90, translation: { x: -5, y: 5 } },
+    },
   });
 
   it("three.js の座標から図面座標に戻せる", () => {
