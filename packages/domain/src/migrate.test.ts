@@ -33,7 +33,7 @@ describe("文書のマイグレーション", () => {
       photoPins: {},
     };
     const migrated = migrateDoc({ ...current, meta: { schemaVersion: 1 }, floors: { f: floor } });
-    expect(migrated.meta.schemaVersion).toBe(4);
+    expect(migrated.meta.schemaVersion).toBe(5);
     expect(migrated.floors.f!.holes).toEqual({});
   });
 
@@ -58,7 +58,7 @@ describe("文書のマイグレーション", () => {
       materials,
       floors: { f: floor },
     });
-    expect(migrated.meta.schemaVersion).toBe(4);
+    expect(migrated.meta.schemaVersion).toBe(5);
     expect(migrated.materials.slab?.presetKey).toBe("slab");
     expect(migrated.floors.f!.slabMaterialId).toBe("slab");
     expect(migrated.settings.crossFloorRange).toBeNull();
@@ -114,7 +114,7 @@ describe("文書のマイグレーション", () => {
         f3: floor(2, {}),
       },
     });
-    expect(migrated.meta.schemaVersion).toBe(4);
+    expect(migrated.meta.schemaVersion).toBe(5);
     expect(migrated.floors.f1!.planOffset).toBeUndefined();
     expect(migrated.floors.u!.planOffset).toBeUndefined();
     expect(migrated.floors.f3!.planOffset).toBeUndefined();
@@ -125,5 +125,31 @@ describe("文書のマイグレーション", () => {
     const a = planToPlan(placements.f2!, placements.f1!)({ x: 90, y: 110 });
     expect(a.x).toBeCloseTo(60);
     expect(a.y).toBeCloseTo(10);
+  });
+
+  it("版 4 の文書のフロアに空のエリアを、設定に AP 1 台あたりの人数の目安を足す", () => {
+    const current = createEmptyProjectDoc();
+    const { peoplePerApTarget: _, ...settings } = current.settings;
+    const migrated = migrateDoc({
+      ...current,
+      meta: { schemaVersion: 4 },
+      settings,
+      floors: {
+        f: {
+          name: "1F",
+          order: 0,
+          elevationM: 0,
+          heightM: 3,
+          walls: {},
+          aps: {},
+          photoPins: {},
+          holes: {},
+          slabMaterialId: "slab",
+        },
+      },
+    });
+    expect(migrated.meta.schemaVersion).toBe(5);
+    expect(migrated.floors.f!.areas).toEqual({});
+    expect(migrated.settings.peoplePerApTarget).toBe(30);
   });
 });

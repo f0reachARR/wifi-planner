@@ -47,9 +47,15 @@ export function pointInPolygon(p: Vec2, polygon: readonly Vec2[]): boolean {
   return inside;
 }
 
-/** p に最も近い輪郭を持つ吹き抜け。中を選べるようにすると範囲選択を始められなくなるので、輪郭だけで選ぶ */
-export function hitTestHole(holes: readonly HoleEntry[], p: Vec2, tolerance: number) {
-  let best: { hole: HoleEntry; distance: number } | undefined;
+/**
+ * p に最も近い輪郭を持つ吹き抜け（エリアにも使う）。中を選べるようにすると範囲選択を始められなくなるので、輪郭だけで選ぶ
+ */
+export function hitTestHole<T extends { points: readonly Vec2[] }>(
+  holes: readonly T[],
+  p: Vec2,
+  tolerance: number,
+) {
+  let best: { hole: T; distance: number } | undefined;
   for (const hole of holes) {
     const c = closestOnPolyline(p, holeRing(hole.points));
     if (c.distance <= tolerance && (!best || c.distance < best.distance))

@@ -30,6 +30,7 @@ export type CanvasTool =
   | "select"
   | "wall"
   | "hole"
+  | "area"
   | "split"
   | "opening"
   | "ap"

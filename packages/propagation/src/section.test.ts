@@ -34,6 +34,7 @@ const floor = (order: number, over: Partial<Floor> = {}): Floor => ({
   aps: {},
   photoPins: {},
   holes: {},
+  areas: {},
   slabMaterialId: "slab",
   ...over,
 });

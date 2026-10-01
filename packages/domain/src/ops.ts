@@ -7,6 +7,8 @@ import {
   type Ap,
   type ApModel,
   Ap as ApSchema,
+  type Area,
+  Area as AreaSchema,
   type Floor,
   type Hole,
   Hole as HoleSchema,
@@ -30,11 +32,11 @@ export function floorMap(ydoc: Y.Doc, floorId: string): YMap | undefined {
   return floorsMap(ydoc).get(floorId);
 }
 
-/** フロアの要素の集合（walls、aps、photoPins、holes） */
+/** フロアの要素の集合（walls、aps、photoPins、holes、areas） */
 export function floorCollection(
   ydoc: Y.Doc,
   floorId: string,
-  key: "walls" | "aps" | "photoPins" | "holes",
+  key: "walls" | "aps" | "photoPins" | "holes" | "areas",
 ): Y.Map<YMap> | undefined {
   return floorMap(ydoc, floorId)?.get(key) as Y.Map<YMap> | undefined;
 }
@@ -67,6 +69,7 @@ export function addFloor(ydoc: Y.Doc, input: NewFloor): string {
     aps: {},
     photoPins: {},
     holes: {},
+    areas: {},
     ...(slabMaterialId ? { slabMaterialId } : {}),
   };
   setEntity(floors as YMap, id, floor, FLOOR_SHAPE);
@@ -483,6 +486,65 @@ export function moveHoles(
     if (hole)
       updateHole(ydoc, floorId, id, {
         points: hole.points.map((p) => ({ x: p.x + dx, y: p.y + dy })),
+      });
+  }
+}
+
+// ---- エリア（FR-11.1） ----
+
+/** エリアの集合。版 5 より前に作ったフロアには無いことがあるので、そのときは作る */
+function areasOf(ydoc: Y.Doc, floorId: string) {
+  const floor = floorMap(ydoc, floorId);
+  if (!floor) throw new Error(`フロアがない: ${floorId}`);
+  let areas = floor.get("areas") as Y.Map<YMap> | undefined;
+  if (!areas) {
+    areas = new Y.Map<YMap>();
+    floor.set("areas", areas);
+  }
+  return areas;
+}
+
+export function readArea(ydoc: Y.Doc, floorId: string, areaId: string): Area | undefined {
+  const map = floorCollection(ydoc, floorId, "areas")?.get(areaId);
+  if (!map) return undefined;
+  const parsed = AreaSchema.safeParse(fromY(map));
+  return parsed.success ? parsed.data : undefined;
+}
+
+export function addArea(ydoc: Y.Doc, floorId: string, area: Area): string {
+  const id = newId();
+  setEntity(areasOf(ydoc, floorId) as YMap, id, area);
+  return id;
+}
+
+export function updateArea(
+  ydoc: Y.Doc,
+  floorId: string,
+  areaId: string,
+  patch: Partial<Area>,
+): void {
+  const map = areasOf(ydoc, floorId).get(areaId);
+  if (map) updateFields(map, patch);
+}
+
+/** エリアを消す。エリアでない ID は無視する */
+export function deleteAreas(ydoc: Y.Doc, floorId: string, areaIds: readonly string[]): void {
+  const areas = areasOf(ydoc, floorId);
+  for (const id of areaIds) areas.delete(id);
+}
+
+export function moveAreas(
+  ydoc: Y.Doc,
+  floorId: string,
+  areaIds: readonly string[],
+  dx: number,
+  dy: number,
+) {
+  for (const id of areaIds) {
+    const area = readArea(ydoc, floorId, id);
+    if (area)
+      updateArea(ydoc, floorId, id, {
+        points: area.points.map((p) => ({ x: p.x + dx, y: p.y + dy })),
       });
   }
 }

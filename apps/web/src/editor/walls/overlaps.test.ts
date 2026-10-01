@@ -23,6 +23,7 @@ const floor = (order: number, walls: Floor["walls"], aligned = true): Floor => (
   aps: {},
   photoPins: {},
   holes: {},
+  areas: {},
 });
 
 const wall = (topM?: number) => ({

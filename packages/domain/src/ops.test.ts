@@ -3,16 +3,19 @@ import * as Y from "yjs";
 import { createEmptyProjectDoc } from "./defaults.js";
 import {
   addAp,
+  addArea,
   addFloor,
   addHole,
   addWall,
   clearPlanOffsets,
   defaultRadios,
+  deleteAreas,
   deleteFloor,
   deleteHoles,
   deleteMaterial,
   duplicateAps,
   mergeWallsById,
+  moveAreas,
   moveHoles,
   nextApName,
   putApModelSnapshot,
@@ -20,6 +23,7 @@ import {
   setWallsHeight,
   setWallsMaterial,
   splitWallAt,
+  updateArea,
   updateFloor,
 } from "./ops.js";
 import { readProjectDoc, writeProjectDoc } from "./ydoc.js";
@@ -60,6 +64,42 @@ describe("フロアの操作", () => {
       ],
     });
     expect(Object.keys(readProjectDoc(ydoc).floors[f]!.holes)).toEqual([id]);
+  });
+
+  it("エリアを足して名前と人数を変え、動かして消せる", () => {
+    const ydoc = fresh();
+    const f = addFloor(ydoc, { name: "1F", elevationM: 0, heightM: 3 });
+    const points = [
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 10, y: 10 },
+    ];
+    const id = addArea(ydoc, f, { name: "会議室", points, headcount: 0 });
+    updateArea(ydoc, f, id, { headcount: 40 });
+    moveAreas(ydoc, f, [id], 5, -1);
+    const area = readProjectDoc(ydoc).floors[f]?.areas[id];
+    expect(area?.headcount).toBe(40);
+    expect(area?.points[1]).toEqual({ x: 15, y: -1 });
+    deleteAreas(ydoc, f, [id]);
+    expect(readProjectDoc(ydoc).floors[f]?.areas).toEqual({});
+  });
+
+  it("エリアの集合が無いフロアも読め、エリアを足すと集合を作る", () => {
+    const ydoc = fresh();
+    const f = addFloor(ydoc, { name: "1F", elevationM: 0, heightM: 3 });
+    // 版 5 より前の文書と統合したときのように、集合を消しておく
+    (ydoc.getMap("floors").get(f) as Y.Map<unknown>).delete("areas");
+    expect(readProjectDoc(ydoc).floors[f]?.areas).toEqual({});
+    const id = addArea(ydoc, f, {
+      name: "",
+      points: [
+        { x: 0, y: 0 },
+        { x: 1, y: 0 },
+        { x: 0, y: 1 },
+      ],
+      headcount: 3,
+    });
+    expect(Object.keys(readProjectDoc(ydoc).floors[f]!.areas)).toEqual([id]);
   });
 
   it("追加したフロアは上に積まれ、並べ替えで order が振り直される", () => {

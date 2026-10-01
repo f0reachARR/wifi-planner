@@ -47,6 +47,7 @@ describe("疑似 3D ビューの形", () => {
     aps: {},
     photoPins: {},
     holes: {},
+    areas: {},
   };
   const placement = floorPlacements({ f: floor }).f!;
 
@@ -198,6 +199,7 @@ describe("3D ビューでの AP と断面の操作", () => {
     aps: {},
     photoPins: {},
     holes: {},
+    areas: {},
   };
   // 2F は位置を合わせ、基準フロアに対して回っている
   const placements = floorPlacements({

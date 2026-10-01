@@ -58,8 +58,8 @@ function floorVersion(
 
 /** 計算の依頼一回分の、キャッシュのキーを作る材料 */
 function keyContext(doc: ProjectDoc, project: ProjectScene) {
-  // 材質と設定は全組に効く。凡例は表示だけの設定なので除く
-  const { legend: _, ...settings } = doc.settings;
+  // 材質と設定は全組に効く。凡例と AP 1 台あたりの人数の目安は表示だけの設定なので除く
+  const { legend: _, peoplePerApTarget: __, ...settings } = doc.settings;
   const global = JSON.stringify([doc.materials, settings]);
   const versions = new Map<string, number>();
   const versionOf = (fid: string) => {

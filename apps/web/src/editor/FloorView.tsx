@@ -41,6 +41,7 @@ import {
   IconStack2,
   IconTable,
   IconTrash,
+  IconUsers,
   IconWall,
   IconWand,
   IconX,
@@ -79,6 +80,9 @@ import { AlignFloorsModal } from "./AlignFloorsModal";
 import { ApInspector, MOUNT_OPTIONS, normalizeAzimuth } from "./aps/ApInspector";
 import { type ApEntry, ApLayer } from "./aps/ApLayer";
 import { ApTableModal } from "./aps/ApTableModal";
+import { AreaLayer } from "./areas/AreaLayer";
+import { AreaPanel } from "./areas/AreaPanel";
+import { type AreaEntry, areaStats } from "./areas/stats";
 import { type CanvasTool, PlanCanvas, type ToolController } from "./canvas/PlanCanvas";
 import { CandidateLayer } from "./extraction/CandidateLayer";
 import { ExtractionPanel } from "./extraction/ExtractionPanel";
@@ -159,7 +163,17 @@ export function FloorView({
     () => Object.entries(floor.holes).map(([id, h]) => ({ ...h, id })),
     [floor.holes],
   );
+  const areas: AreaEntry[] = useMemo(
+    () => Object.entries(floor.areas).map(([id, a]) => ({ ...a, id })),
+    [floor.areas],
+  );
   const mpu = metersPerUnit(floor.scale);
+  // エリアごとの AP の台数と AP 1 台あたりの人数（FR-11.2〜11.4）
+  const peoplePerApTarget = doc?.settings.peoplePerApTarget ?? 30;
+  const stats = useMemo(
+    () => areaStats(areas, aps, mpu, peoplePerApTarget),
+    [areas, aps, mpu, peoplePerApTarget],
+  );
   const { data: library = [] } = useApModels();
   const [showApTable, setShowApTable] = useState(false);
 
@@ -206,6 +220,7 @@ export function FloorView({
     walls,
     aps,
     holes,
+    areas,
     tool,
     metersPerUnit: mpu,
     planRotationDeg: plan?.rotationDeg ?? 0,
@@ -308,7 +323,8 @@ export function FloorView({
   const selectedWalls = wallTools.selection.filter((id) => floor.walls[id]);
   const selectedAps = wallTools.selection.filter((id) => floor.aps[id]);
   const selectedHoles = wallTools.selection.filter((id) => floor.holes[id]);
-  const drawingTool = tool === "wall" || tool === "hole";
+  const selectedAreas = wallTools.selection.filter((id) => floor.areas[id]);
+  const drawingTool = tool === "wall" || tool === "hole" || tool === "area";
   const floorPeers = peers.filter((p) => p.floorId === floor.id);
 
   useHotkeys([
@@ -324,7 +340,16 @@ export function FloorView({
           ? wallTools.cancelDrawing()
           : wallTools.setSelection([]),
     ],
-    ["Enter", () => drawingTool && wallTools.finishDrawing()],
+    // 描いていないときは、フォーカスしたボタン（エリアの一覧の名前など）を Enter で押せるよう、既定の動作を止めない
+    [
+      "Enter",
+      (e) => {
+        if (!drawingTool) return;
+        e.preventDefault();
+        wallTools.finishDrawing();
+      },
+      { preventDefault: false },
+    ],
     ["V", () => setTool("select")],
     [
       "mod+A",
@@ -334,6 +359,7 @@ export function FloorView({
           ...walls.map((w) => w.id),
           ...aps.map((a) => a.id),
           ...holes.map((h) => h.id),
+          ...areas.map((a) => a.id),
         ]);
       },
     ],
@@ -426,6 +452,16 @@ export function FloorView({
                   opacity={0.6}
                 />
               )}
+              <AreaLayer
+                areas={areas}
+                stats={stats}
+                selection={wallTools.selectionSet}
+                peers={floorPeers}
+                drafts={wallTools.drafts}
+                px={px}
+                planRotationDeg={plan.rotationDeg}
+                showHandles={tool === "select" && !readOnly && wallTools.selection.length === 1}
+              />
               <HoleLayer
                 holes={holes}
                 selection={wallTools.selectionSet}
@@ -448,7 +484,8 @@ export function FloorView({
                   !readOnly &&
                   selectedWalls.length === 1 &&
                   selectedAps.length === 0 &&
-                  selectedHoles.length === 0
+                  selectedHoles.length === 0 &&
+                  selectedAreas.length === 0
                 }
               />
               <ApLayer
@@ -526,6 +563,10 @@ export function FloorView({
                       {
                         value: "hole",
                         label: <ToolLabel icon={<IconSquareDashed size={14} />} text="吹き抜け" />,
+                      },
+                      {
+                        value: "area",
+                        label: <ToolLabel icon={<IconUsers size={14} />} text="エリア" />,
                       },
                       {
                         value: "split",
@@ -731,6 +772,14 @@ export function FloorView({
               <Text size="xs" c="dimmed">
                 床のない範囲の頂点をクリックで置き、最初の点のクリック、ダブルクリック、Enter
                 のいずれかで閉じます。3D ビューではこの範囲の床を抜いて表示します
+              </Text>
+            </Group>
+          )}
+          {tool === "area" && (
+            <Group gap={4} mt={4}>
+              <Text size="xs" c="dimmed">
+                人数を割り当てる範囲の頂点をクリックで置き、最初の点のクリック、ダブルクリック、Enter
+                のいずれかで閉じます。人数は右の「エリア」で入れます
               </Text>
             </Group>
           )}
@@ -1109,7 +1158,9 @@ export function FloorView({
             </Button>
           )}
           {(selectedWalls.length > 0 ||
-            (selectedAps.length === 0 && selectedHoles.length === 0)) && (
+            (selectedAps.length === 0 &&
+              selectedHoles.length === 0 &&
+              selectedAreas.length === 0)) && (
             <WallInspector
               floorId={floor.id}
               floorHeightM={floor.heightM}
@@ -1176,6 +1227,22 @@ export function FloorView({
               をクリックすると設定を変えられます。
             </Text>
           )}
+          <Divider />
+          <Text fw={600} size="sm">
+            エリア
+          </Text>
+          <AreaPanel
+            floorId={floor.id}
+            areas={areas}
+            stats={stats}
+            selection={selectedAreas}
+            setSelection={(ids) => {
+              setTool("select");
+              wallTools.setSelection(ids);
+            }}
+            onDelete={wallTools.deleteSelection}
+            peoplePerApTarget={peoplePerApTarget}
+          />
         </Stack>
       </Box>
       <MaterialsModal opened={editingMaterials} onClose={() => setEditingMaterials(false)} />

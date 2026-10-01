@@ -69,6 +69,16 @@ export const MIGRATIONS: Record<number, Migration> = {
       ),
     };
   },
+  // 版 5 でフロアにエリア（areas）を、設定に AP 1 台あたりの人数の目安を足した
+  4: (doc) => ({
+    ...doc,
+    settings: { peoplePerApTarget: 30, ...(doc.settings as object) },
+    floors: Object.fromEntries(
+      Object.entries((doc.floors ?? {}) as Record<string, Record<string, unknown>>).map(
+        ([id, floor]) => [id, { areas: {}, ...floor }],
+      ),
+    ),
+  }),
 };
 
 export class UnsupportedSchemaError extends Error {}
