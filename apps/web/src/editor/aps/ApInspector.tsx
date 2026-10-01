@@ -35,10 +35,20 @@ import {
 import { useSession, useSessionState } from "../../collab/react";
 import type { ApEntry } from "./ApLayer";
 
-export const MOUNT_OPTIONS = [
+export const MOUNT_OPTIONS: { value: MountType; label: string }[] = [
   { value: "ceiling", label: "天井設置" },
   { value: "wall", label: "壁設置" },
 ];
+
+/** 設置方法のボタンで書く向きのプリセット。チルトを 0° に戻し、方位角は変えない（FR-6.2） */
+export function mountPreset(mount: MountType): { mount: MountType; tiltDeg: number } {
+  return { mount, tiltDeg: 0 };
+}
+
+/** 方位角を 0 以上 360 未満にする */
+export function normalizeAzimuth(deg: number): number {
+  return ((deg % 360) + 360) % 360;
+}
 
 /** チャネルの選択肢。国内で使えないものには印を付ける（FR-6.4 を緩めた扱い、設計書 5.4 節） */
 export function channelOptions(band: Band) {
@@ -115,7 +125,7 @@ export function ApInspector(props: {
           }}
         />
       )}
-      <Group grow>
+      <Group grow align="flex-end">
         <NumberInput
           label="設置高さ"
           suffix=" m"
@@ -126,15 +136,26 @@ export function ApInspector(props: {
           disabled={readOnly}
           onChange={(v) => typeof v === "number" && mutateAll({ heightM: v })}
         />
-        <Select
-          label="設置方法"
-          data={MOUNT_OPTIONS}
-          value={common("mount") ?? null}
-          placeholder="（複数）"
-          allowDeselect={false}
-          disabled={readOnly}
-          onChange={(v) => v && mutateAll({ mount: v as MountType })}
-        />
+        <Stack gap={4}>
+          <Text size="sm" fw={500}>
+            設置方法
+          </Text>
+          <Button.Group>
+            {MOUNT_OPTIONS.map((o) => (
+              <Button
+                key={o.value}
+                size="xs"
+                flex={1}
+                variant={common("mount") === o.value ? "filled" : "default"}
+                aria-pressed={common("mount") === o.value}
+                disabled={readOnly}
+                onClick={() => mutateAll(mountPreset(o.value))}
+              >
+                {o.label}
+              </Button>
+            ))}
+          </Button.Group>
+        </Stack>
       </Group>
       <Group grow>
         <NumberInput
@@ -144,9 +165,7 @@ export function ApInspector(props: {
           value={common("azimuthDeg") ?? ""}
           placeholder="（複数）"
           disabled={readOnly}
-          onChange={(v) =>
-            typeof v === "number" && mutateAll({ azimuthDeg: ((v % 360) + 360) % 360 })
-          }
+          onChange={(v) => typeof v === "number" && mutateAll({ azimuthDeg: normalizeAzimuth(v) })}
         />
         <NumberInput
           label="チルト"
@@ -163,7 +182,8 @@ export function ApInspector(props: {
       <Text size="xs" c="dimmed">
         方位角は図面の右を 0° とした反時計回り。図面上で AP を 1
         つ選び、矢印の先のハンドルをドラッグしても変えられます（Shift で 15°
-        刻み）。天井設置のチルトは真下からの傾き、壁設置のチルトは下向きの角度です。
+        刻み）。天井設置のチルトは真下からの傾き、壁設置のチルトは下向きの角度です。設置方法のボタンを押すと、チルトを
+        0° に戻します。
       </Text>
       {!readOnly && (
         <Group gap="xs">

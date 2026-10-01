@@ -8,7 +8,7 @@ import { ProjectSessionProvider, useSession, useSessionState } from "../collab/r
 import { colorForUser } from "../collab/session";
 import { EditorHeader, type EditorView } from "../editor/EditorHeader";
 import { FloorPanel, sortedFloors } from "../editor/FloorPanel";
-import { FloorView } from "../editor/FloorView";
+import { type ApPlacementDefaults, FloorView, INITIAL_AP_PLACEMENT } from "../editor/FloorView";
 import { View3D } from "../editor/view3d/View3D";
 
 export function ProjectPage() {
@@ -57,6 +57,7 @@ function Editor({ project }: { project: Project }) {
   const { doc, state, synced } = useSessionState();
   const [floorId, setFloorId] = useState<string>();
   const [view, setView] = useState<EditorView>("2d");
+  const [apPlacement, setApPlacement] = useState<ApPlacementDefaults>(INITIAL_AP_PLACEMENT);
   const floors = sortedFloors(doc?.floors ?? {});
   const floor = floors.find((f) => f.id === floorId);
 
@@ -90,7 +91,12 @@ function Editor({ project }: { project: Project }) {
           ) : view === "3d" ? (
             <View3D />
           ) : floor ? (
-            <FloorView key={floor.id} floor={floor} />
+            <FloorView
+              key={floor.id}
+              floor={floor}
+              apPlacement={apPlacement}
+              onApPlacementChange={(patch) => setApPlacement((p) => ({ ...p, ...patch }))}
+            />
           ) : (
             <Center h="100%">
               <Text c="dimmed">左の「追加」からフロアを作成してください</Text>

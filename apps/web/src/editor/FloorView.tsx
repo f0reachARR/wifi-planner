@@ -53,6 +53,7 @@ import {
   distance,
   type Floor,
   floorPlacements,
+  type MountType,
   metersPerUnit,
   planToPlan,
   planTransform,
@@ -75,7 +76,7 @@ import { notifyError } from "../notify";
 import { composeImage, type HeatmapMode, MODE_LABELS } from "../propagation/render";
 import { useHeatmap } from "../propagation/useHeatmap";
 import { AlignFloorsModal } from "./AlignFloorsModal";
-import { ApInspector } from "./aps/ApInspector";
+import { ApInspector, MOUNT_OPTIONS, normalizeAzimuth } from "./aps/ApInspector";
 import { type ApEntry, ApLayer } from "./aps/ApLayer";
 import { ApTableModal } from "./aps/ApTableModal";
 import { type CanvasTool, PlanCanvas, type ToolController } from "./canvas/PlanCanvas";
@@ -105,8 +106,34 @@ import { useWallTools } from "./walls/useWallTools";
 import { WallInspector } from "./walls/WallInspector";
 import { WallLayer } from "./walls/WallLayer";
 
+/** AP を置くときの初期値（FR-6.1）。フロアを切り替えても保つよう、編集画面の側で持つ */
+export type ApPlacementDefaults = {
+  modelId: string | null;
+  /** 指定しなければ、2.7 m とフロアの階高の小さいほう */
+  heightM: number | undefined;
+  mount: MountType;
+  azimuthDeg: number;
+  tiltDeg: number;
+};
+
+export const INITIAL_AP_PLACEMENT: ApPlacementDefaults = {
+  modelId: null,
+  heightM: undefined,
+  mount: "ceiling",
+  azimuthDeg: 0,
+  tiltDeg: 0,
+};
+
 /** 1 フロアの 2D 編集画面 */
-export function FloorView({ floor }: { floor: FloorEntry }) {
+export function FloorView({
+  floor,
+  apPlacement,
+  onApPlacementChange,
+}: {
+  floor: FloorEntry;
+  apPlacement: ApPlacementDefaults;
+  onApPlacementChange: (patch: Partial<ApPlacementDefaults>) => void;
+}) {
   const session = useSession();
   const { doc, peers } = useSessionState();
   const readOnly = session.readOnly;
@@ -134,12 +161,11 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
   );
   const mpu = metersPerUnit(floor.scale);
   const { data: library = [] } = useApModels();
-  const [placeModelId, setPlaceModelId] = useState<string | null>(null);
   const [showApTable, setShowApTable] = useState(false);
 
   /** AP を置く（FR-6.1）。ライブラリのモデルをまだ写していなければ、プロジェクトに写す */
   const placeAp = (p: Vec2): string | undefined => {
-    const entry = library.find((m) => m.id === placeModelId);
+    const entry = library.find((m) => m.id === apPlacement.modelId);
     if (!entry || !doc) {
       notifyError(new Error("置く AP モデルを選んでください"));
       return undefined;
@@ -160,10 +186,10 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
         name: nextApName("AP-0", names),
         modelId: entry.id,
         position: p,
-        heightM: Math.min(2.7, floor.heightM),
-        mount: "ceiling",
-        azimuthDeg: 0,
-        tiltDeg: 0,
+        heightM: apPlacement.heightM ?? Math.min(2.7, floor.heightM),
+        mount: apPlacement.mount,
+        azimuthDeg: apPlacement.azimuthDeg,
+        tiltDeg: apPlacement.tiltDeg,
         radios: defaultRadios(model),
       });
     });
@@ -719,9 +745,51 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                   const def = ApModel.safeParse(m.definition);
                   return def.success ? [{ value: m.id, label: def.data.name }] : [];
                 })}
-                value={placeModelId}
-                onChange={setPlaceModelId}
+                value={apPlacement.modelId}
+                onChange={(modelId) => onApPlacementChange({ modelId })}
                 nothingFoundMessage="AP モデルがありません"
+              />
+              <NumberInput
+                size="xs"
+                w={100}
+                aria-label="置く AP の設置高さ"
+                suffix=" m"
+                decimalScale={2}
+                min={0}
+                value={apPlacement.heightM ?? ""}
+                placeholder={`${Math.min(2.7, floor.heightM)} m`}
+                onChange={(v) =>
+                  onApPlacementChange({ heightM: typeof v === "number" ? v : undefined })
+                }
+              />
+              <SegmentedControl
+                size="xs"
+                aria-label="置く AP の設置方法"
+                data={MOUNT_OPTIONS}
+                value={apPlacement.mount}
+                onChange={(v) => onApPlacementChange({ mount: v as MountType })}
+              />
+              <NumberInput
+                size="xs"
+                w={80}
+                aria-label="置く AP の方位角"
+                suffix="°"
+                decimalScale={1}
+                value={apPlacement.azimuthDeg}
+                onChange={(v) =>
+                  typeof v === "number" && onApPlacementChange({ azimuthDeg: normalizeAzimuth(v) })
+                }
+              />
+              <NumberInput
+                size="xs"
+                w={80}
+                aria-label="置く AP のチルト"
+                suffix="°"
+                decimalScale={1}
+                min={-90}
+                max={90}
+                value={apPlacement.tiltDeg}
+                onChange={(v) => typeof v === "number" && onApPlacementChange({ tiltDeg: v })}
               />
               <Text size="xs" c="dimmed">
                 {library.length === 0
