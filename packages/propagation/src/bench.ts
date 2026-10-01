@@ -24,7 +24,8 @@ for (let i = 0; i < 300; i++) {
       horizontal ? { x: Math.min(x + len, SIZE), y } : { x, y: Math.min(y + len, SIZE) },
     ],
     lossDb: 3 + rand() * 12,
-    openings: rand() < 0.2 ? [{ start: 0.2, end: 1.0, lossDb: 3 }] : [],
+    range: { bottom: 0, top: 3 },
+    openings: rand() < 0.2 ? [{ start: 0.2, end: 1.0, lossDb: 3, range: { bottom: 0, top: 2 } }] : [],
   });
 }
 

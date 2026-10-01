@@ -10,7 +10,7 @@ import {
   type RadioSource,
 } from "./field.js";
 import { buildFloorScene } from "./scene.js";
-import { buildSegments, wallLossDb } from "./walls.js";
+import { buildSegments, type SegmentSet, wallLossDb } from "./walls.js";
 
 const omni = compilePattern({ kind: "omni", gainDbi: 0 }, "2.4");
 
@@ -24,6 +24,8 @@ const source = (x: number, y: number, over: Partial<RadioSource> = {}): RadioSou
   frequencyMHz: 2437,
   ...over,
 });
+
+const FULL = { bottom: 0, top: 3 };
 
 const envWith = (walls: Parameters<typeof buildSegments>[0]): Environment => ({
   segments: buildSegments(walls),
@@ -60,14 +62,18 @@ describe("壁の減衰", () => {
       { x, y: 5 },
     ],
     lossDb,
+    range: FULL,
     openings: [],
   });
+  /** 床から高さ 1 m の水平な経路 */
+  const flat = (set: SegmentSet, px: number, py: number, qx: number, qy: number) =>
+    wallLossDb(set, px, py, 1, qx, qy, 1);
 
   it("横切った壁の減衰量を足す", () => {
     const set = buildSegments([wall(1, 10), wall(2, 5)]);
-    expect(wallLossDb(set, 0, 0, 1.5, 0)).toBe(10);
-    expect(wallLossDb(set, 0, 0, 3, 0)).toBe(15);
-    expect(wallLossDb(set, 0, 0, 0.5, 0)).toBe(0);
+    expect(flat(set, 0, 0, 1.5, 0)).toBe(10);
+    expect(flat(set, 0, 0, 3, 0)).toBe(15);
+    expect(flat(set, 0, 0, 0.5, 0)).toBe(0);
   });
 
   it("折れ線の頂点を通る経路で減衰を二重に数えない", () => {
@@ -79,17 +85,53 @@ describe("壁の減衰", () => {
           { x: 1, y: 5 },
         ],
         lossDb: 10,
+        range: FULL,
         openings: [],
       },
     ]);
-    expect(wallLossDb(set, 0, 0, 2, 0)).toBe(10);
+    expect(flat(set, 0, 0, 2, 0)).toBe(10);
   });
 
   it("開口部の区間では開口部の材質の減衰量を使う", () => {
     // 壁は y=-5 から y=5 まで。折れ線に沿った距離 4〜6 m（y=-1〜1）がドア
-    const set = buildSegments([{ ...wall(1, 20), openings: [{ start: 4, end: 6, lossDb: 3 }] }]);
-    expect(wallLossDb(set, 0, 0, 2, 0)).toBe(3);
-    expect(wallLossDb(set, 0, 3, 2, 3)).toBe(20);
+    const set = buildSegments([
+      { ...wall(1, 20), openings: [{ start: 4, end: 6, lossDb: 3, range: FULL }] },
+    ]);
+    expect(flat(set, 0, 0, 2, 0)).toBe(3);
+    expect(flat(set, 0, 3, 2, 3)).toBe(20);
+  });
+
+  it("交点の高さが壁の高さの範囲に入るときだけ足す（設計書 6.1.1 節）", () => {
+    // 高さ 1.2 m までの腰壁
+    const set = buildSegments([{ ...wall(1, 10), range: { bottom: 0, top: 1.2 } }]);
+    expect(wallLossDb(set, 0, 0, 1, 2, 0, 1)).toBe(10);
+    expect(wallLossDb(set, 0, 0, 1.5, 2, 0, 1.5)).toBe(0);
+    // 高さ 2.5 m から 1.0 m へ下る経路は、x=1 で高さ 1.75 m を通るので越える
+    expect(wallLossDb(set, 0, 0, 2.5, 2, 0, 1)).toBe(0);
+    // 下端を含み上端を含まない
+    expect(wallLossDb(set, 0, 0, 0, 2, 0, 0)).toBe(10);
+    expect(wallLossDb(set, 0, 0, 1.2, 2, 0, 1.2)).toBe(0);
+  });
+
+  it("上下に積んだ壁の境目を通る経路で減衰を二重に数えない", () => {
+    const set = buildSegments([
+      { ...wall(1, 10), range: { bottom: 0, top: 3 } },
+      { ...wall(1, 7), range: { bottom: 3, top: 6 } },
+    ]);
+    expect(wallLossDb(set, 0, 0, 3, 2, 0, 3)).toBe(7);
+    expect(wallLossDb(set, 0, 0, 1, 2, 0, 3)).toBe(10);
+  });
+
+  it("開口部の高さの上下は壁の材質の減衰量を使う", () => {
+    // 高さ 2 m までのドア。その上から天井までは壁
+    const set = buildSegments([
+      {
+        ...wall(1, 20),
+        openings: [{ start: 4, end: 6, lossDb: 3, range: { bottom: 0, top: 2 } }],
+      },
+    ]);
+    expect(wallLossDb(set, 0, 0, 1, 2, 0, 1)).toBe(3);
+    expect(wallLossDb(set, 0, 0, 2.5, 2, 0, 2.5)).toBe(20);
   });
 });
 

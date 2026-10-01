@@ -3,9 +3,11 @@ import {
   effectiveFrequencyMHz,
   type FrequencyRange,
   occupiedRange,
+  openingHeightRange,
   type PlanTransform,
   type ProjectDoc,
   planTransform,
+  wallHeightRange,
 } from "@wifi-planner/domain";
 import { antennaFrame, compilePattern } from "./antenna.js";
 import { type Environment, type GridSpec, gridForExtent, type RadioSource } from "./field.js";
@@ -43,15 +45,20 @@ export function buildFloorScene(doc: ProjectDoc, floorId: string, band: Band): F
 
   const mpu = transform.metersPerUnit;
   const lossOf = (materialId: string) => doc.materials[materialId]?.lossDb[band] ?? 0;
-  const walls: WallInput[] = Object.values(floor.walls).map((w) => ({
-    points: w.points.map(transform.toFloor),
-    lossDb: lossOf(w.materialId),
-    openings: w.openings.map((o) => ({
-      start: o.start * mpu,
-      end: o.end * mpu,
-      lossDb: lossOf(o.materialId),
-    })),
-  }));
+  const walls: WallInput[] = Object.values(floor.walls).map((w) => {
+    const range = wallHeightRange(w, floor.heightM);
+    return {
+      points: w.points.map(transform.toFloor),
+      lossDb: lossOf(w.materialId),
+      range,
+      openings: w.openings.map((o) => ({
+        start: o.start * mpu,
+        end: o.end * mpu,
+        lossDb: lossOf(o.materialId),
+        range: openingHeightRange(o, range),
+      })),
+    };
+  });
 
   const env: Environment = {
     segments: buildSegments(walls),

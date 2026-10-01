@@ -56,7 +56,7 @@ export function evaluatePoint(src: RadioSource, env: Environment, x: number, y: 
     gainToward(src.pattern, src.frame, dx, dy, dz) +
     env.rxGainDbi -
     pathLossDb(d, src.frequencyMHz, env.pathLossExponent) -
-    wallLossDb(env.segments, src.x, src.y, x, y)
+    wallLossDb(env.segments, src.x, src.y, src.heightM, x, y, env.receiverHeightM)
   );
 }
 
