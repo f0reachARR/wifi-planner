@@ -6,7 +6,7 @@ import { Vec2 } from "./geometry.js";
 // プロジェクトの Yjs 文書の形。文書では各要素を ID をキーにした Y.Map に入れるので、
 // ここでも要素そのものには ID を持たせず、Record のキーで表す。
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 const Id = z.string().min(1);
 const Color = z.string().regex(/^#[0-9a-fA-F]{6}$/);
@@ -154,6 +154,12 @@ export const PhotoPin = z.object({
 });
 export type PhotoPin = z.infer<typeof PhotoPin>;
 
+/** 吹き抜け（床のない範囲）。頂点は図面座標で、閉じた多角形として扱う */
+export const Hole = z.object({
+  points: z.array(Vec2).min(3),
+});
+export type Hole = z.infer<typeof Hole>;
+
 export const Floor = z.object({
   name: z.string(),
   order: z.number(),
@@ -166,6 +172,11 @@ export const Floor = z.object({
   walls: z.record(Id, Wall),
   aps: z.record(Id, Ap),
   photoPins: z.record(Id, PhotoPin),
+  /**
+   * 版 2 で足した。サーバのマイグレーションで足しても、ブラウザに残った古い文書と統合すると
+   * 足す前のフロアが勝つことがあるので、無ければ空とみなす
+   */
+  holes: z.record(Id, Hole).default({}),
 });
 export type Floor = z.infer<typeof Floor>;
 

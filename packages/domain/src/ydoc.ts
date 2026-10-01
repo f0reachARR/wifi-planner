@@ -14,7 +14,9 @@ const ROOT_SHAPE = {
   settings: "fields",
   materials: "entities",
   apModels: "entities",
-  floors: { entities: { walls: "entities", aps: "entities", photoPins: "entities" } },
+  floors: {
+    entities: { walls: "entities", aps: "entities", photoPins: "entities", holes: "entities" },
+  },
 } as const satisfies Shape;
 
 type Json = unknown;

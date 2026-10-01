@@ -15,10 +15,11 @@ function subPolyline(points: readonly Vec2[], s0: number, s1: number): Vec2[] {
 }
 
 export type WallDrafts = {
-  drawing?: { points: Vec2[]; hover?: Vec2; snap: SnapKind };
+  /** closed なら吹き抜けとして、閉じた多角形で描く */
+  drawing?: { points: Vec2[]; hover?: Vec2; snap: SnapKind; closed?: boolean };
   marquee?: Vec2[];
   move?: { dx: number; dy: number };
-  vertex?: { wallId: string; index: number; point: Vec2; snap: SnapKind };
+  vertex?: { wallId: string; target: "wall" | "hole"; index: number; point: Vec2; snap: SnapKind };
   hover?: { wallId: string; point: Vec2 };
 };
 
@@ -156,7 +157,9 @@ export function WallLayer(props: {
                 : drafts.drawing.points,
             )}
             stroke="#228be6"
-            strokeWidth={wallWidth}
+            strokeWidth={drafts.drawing.closed ? 2 * px : wallWidth}
+            closed={drafts.drawing.closed}
+            fill={drafts.drawing.closed ? "rgba(34,139,230,0.12)" : undefined}
             lineCap="round"
             lineJoin="round"
             opacity={0.8}

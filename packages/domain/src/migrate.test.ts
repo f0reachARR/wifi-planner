@@ -20,6 +20,22 @@ describe("文書のマイグレーション", () => {
     expect(migrated.settings.receiverHeightM).toBe(1.2);
   });
 
+  it("版 1 の文書のフロアに、空の吹き抜けを足す", () => {
+    const current = createEmptyProjectDoc();
+    const floor = {
+      name: "1F",
+      order: 0,
+      elevationM: 0,
+      heightM: 3,
+      walls: {},
+      aps: {},
+      photoPins: {},
+    };
+    const migrated = migrateDoc({ ...current, meta: { schemaVersion: 1 }, floors: { f: floor } });
+    expect(migrated.meta.schemaVersion).toBe(2);
+    expect(migrated.floors.f!.holes).toEqual({});
+  });
+
   it("新しすぎる版と、変換の方法がない版は読まない", () => {
     const doc = { ...createEmptyProjectDoc(), meta: { schemaVersion: 99 } };
     expect(() => migrateDoc(doc)).toThrow(UnsupportedSchemaError);

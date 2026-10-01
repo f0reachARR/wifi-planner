@@ -1,8 +1,18 @@
-import { closestOnPolyline, type Rect, type Vec2, type Wall } from "@wifi-planner/domain";
+import {
+  closestOnPolyline,
+  type Hole,
+  type Rect,
+  type Vec2,
+  type Wall,
+} from "@wifi-planner/domain";
 
 import type { SnapGuides } from "./snap/guides";
 
 export type WallEntry = Wall & { id: string };
+export type HoleEntry = Hole & { id: string };
+
+/** 吹き抜けの輪郭を、最初の頂点に戻る折れ線にする */
+export const holeRing = (points: readonly Vec2[]): Vec2[] => [...points, points[0]!];
 
 /** p に最も近い壁。tolerance（図面座標）より遠ければ undefined */
 export function hitTestWall(walls: readonly WallEntry[], p: Vec2, tolerance: number) {
@@ -37,8 +47,41 @@ export function pointInPolygon(p: Vec2, polygon: readonly Vec2[]): boolean {
   return inside;
 }
 
+/** p に最も近い輪郭を持つ吹き抜け。中を選べるようにすると範囲選択を始められなくなるので、輪郭だけで選ぶ */
+export function hitTestHole(holes: readonly HoleEntry[], p: Vec2, tolerance: number) {
+  let best: { hole: HoleEntry; distance: number } | undefined;
+  for (const hole of holes) {
+    const c = closestOnPolyline(p, holeRing(hole.points));
+    if (c.distance <= tolerance && (!best || c.distance < best.distance))
+      best = { hole, distance: c.distance };
+  }
+  return best?.hole;
+}
+
+/** 範囲に触れる吹き抜け */
+export function holesInPolygon(holes: readonly HoleEntry[], polygon: readonly Vec2[]): string[] {
+  return wallsInPolygon(
+    holes.map((h) => ({ id: h.id, points: holeRing(h.points) })),
+    polygon,
+  );
+}
+
+/** 多角形の面積（向きによらず正） */
+export function polygonArea(points: readonly Vec2[]): number {
+  let sum = 0;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i]!;
+    const b = points[(i + 1) % points.length]!;
+    sum += a.x * b.y - b.x * a.y;
+  }
+  return Math.abs(sum) / 2;
+}
+
 /** 多角形の範囲に触れる壁（頂点が中にあるか、辺と交わる） */
-export function wallsInPolygon(walls: readonly WallEntry[], polygon: readonly Vec2[]): string[] {
+export function wallsInPolygon(
+  walls: readonly { id: string; points: readonly Vec2[] }[],
+  polygon: readonly Vec2[],
+): string[] {
   if (polygon.length < 3) return [];
   return walls
     .filter((w) => {

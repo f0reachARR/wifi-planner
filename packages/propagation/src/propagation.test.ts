@@ -283,6 +283,7 @@ describe("フロアの計算入力", () => {
         },
       },
       photoPins: {},
+      holes: {},
     };
     return doc;
   };

@@ -37,8 +37,10 @@ import {
   IconRuler2,
   IconScissors,
   IconSettings,
+  IconSquareDashed,
   IconStack2,
   IconTable,
+  IconTrash,
   IconWall,
   IconWand,
   IconX,
@@ -79,7 +81,7 @@ import { ExtractionPanel } from "./extraction/ExtractionPanel";
 import { useCandidateSelection } from "./extraction/useCandidateSelection";
 import { useExtraction } from "./extraction/useExtraction";
 import { type FloorEntry, sortedFloors } from "./FloorPanel";
-import { SNAP_PX, snapPoint, type WallEntry } from "./geometry";
+import { type HoleEntry, polygonArea, SNAP_PX, snapPoint, type WallEntry } from "./geometry";
 import { HeatmapLayer } from "./heatmap/HeatmapLayer";
 import { HoverReadout } from "./heatmap/HoverReadout";
 import { createHoverStore } from "./heatmap/hover";
@@ -94,6 +96,7 @@ import { PhotoPinDrawer } from "./photos/PhotoPinDrawer";
 import { ScaleModal } from "./ScaleModal";
 import { GuideLayer } from "./snap/SnapMarker";
 import { useSnapGuides } from "./snap/useSnapGuides";
+import { HoleLayer } from "./walls/HoleLayer";
 import { useWallTools } from "./walls/useWallTools";
 import { WallInspector } from "./walls/WallInspector";
 import { WallLayer } from "./walls/WallLayer";
@@ -119,6 +122,10 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
   const aps: ApEntry[] = useMemo(
     () => Object.entries(floor.aps).map(([id, a]) => ({ ...a, id })),
     [floor.aps],
+  );
+  const holes: HoleEntry[] = useMemo(
+    () => Object.entries(floor.holes).map(([id, h]) => ({ ...h, id })),
+    [floor.holes],
   );
   const mpu = metersPerUnit(floor.scale);
   const { data: library = [] } = useApModels();
@@ -167,6 +174,7 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
     floorId: floor.id,
     walls,
     aps,
+    holes,
     tool,
     metersPerUnit: mpu,
     materialIds,
@@ -241,29 +249,34 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
 
   const selectedWalls = wallTools.selection.filter((id) => floor.walls[id]);
   const selectedAps = wallTools.selection.filter((id) => floor.aps[id]);
+  const selectedHoles = wallTools.selection.filter((id) => floor.holes[id]);
+  const drawingTool = tool === "wall" || tool === "hole";
   const floorPeers = peers.filter((p) => p.floorId === floor.id);
 
   useHotkeys([
     ["Delete", () => !readOnly && wallTools.deleteSelection()],
     [
       "Backspace",
-      () =>
-        tool === "wall" ? wallTools.undoLastPoint() : !readOnly && wallTools.deleteSelection(),
+      () => (drawingTool ? wallTools.undoLastPoint() : !readOnly && wallTools.deleteSelection()),
     ],
     [
       "Escape",
       () =>
-        tool === "wall" && wallTools.drawing.length > 0
+        drawingTool && wallTools.drawing.length > 0
           ? wallTools.cancelDrawing()
           : wallTools.setSelection([]),
     ],
-    ["Enter", () => tool === "wall" && wallTools.finishDrawing()],
+    ["Enter", () => drawingTool && wallTools.finishDrawing()],
     ["V", () => setTool("select")],
     [
       "mod+A",
       () => {
         setTool("select");
-        wallTools.setSelection([...walls.map((w) => w.id), ...aps.map((a) => a.id)]);
+        wallTools.setSelection([
+          ...walls.map((w) => w.id),
+          ...aps.map((a) => a.id),
+          ...holes.map((h) => h.id),
+        ]);
       },
     ],
     ["H", () => setTool("pan")],
@@ -359,6 +372,15 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                   opacity={0.6}
                 />
               )}
+              <HoleLayer
+                holes={holes}
+                selection={wallTools.selectionSet}
+                peers={floorPeers}
+                drafts={wallTools.drafts}
+                px={px}
+                planRotationDeg={plan.rotationDeg}
+                showHandles={tool === "select" && !readOnly && wallTools.selection.length === 1}
+              />
               <WallLayer
                 walls={walls}
                 materials={materials}
@@ -370,7 +392,8 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                   tool === "select" &&
                   !readOnly &&
                   selectedWalls.length === 1 &&
-                  selectedAps.length === 0
+                  selectedAps.length === 0 &&
+                  selectedHoles.length === 0
                 }
               />
               <ApLayer
@@ -442,6 +465,10 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                       {
                         value: "wall",
                         label: <ToolLabel icon={<IconWall size={14} />} text="壁" />,
+                      },
+                      {
+                        value: "hole",
+                        label: <ToolLabel icon={<IconSquareDashed size={14} />} text="吹き抜け" />,
                       },
                       {
                         value: "split",
@@ -629,6 +656,14 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
               />
               <Text size="xs" c="dimmed">
                 クリックで点を置き、ダブルクリックか Enter で確定。Esc で取り消し
+              </Text>
+            </Group>
+          )}
+          {tool === "hole" && (
+            <Group gap={4} mt={4}>
+              <Text size="xs" c="dimmed">
+                床のない範囲の頂点をクリックで置き、最初の点のクリック、ダブルクリック、Enter
+                のいずれかで閉じます。3D ビューではこの範囲の床を抜いて表示します
               </Text>
             </Group>
           )}
@@ -935,7 +970,8 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
               図面から壁を自動抽出
             </Button>
           )}
-          {(selectedWalls.length > 0 || selectedAps.length === 0) && (
+          {(selectedWalls.length > 0 ||
+            (selectedAps.length === 0 && selectedHoles.length === 0)) && (
             <WallInspector
               floorId={floor.id}
               walls={walls}
@@ -945,6 +981,32 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
               onDelete={wallTools.deleteSelection}
               metersPerUnit={mpu}
             />
+          )}
+          {selectedHoles.length > 0 && (
+            <Stack gap={4}>
+              <Text size="xs">
+                吹き抜け {selectedHoles.length} 個を選択中
+                {mpu !== undefined &&
+                  `（${selectedHoles
+                    .reduce((sum, id) => sum + polygonArea(floor.holes[id]!.points) * mpu * mpu, 0)
+                    .toFixed(1)} m²）`}
+              </Text>
+              <Text size="xs" c="dimmed">
+                ドラッグで移動、頂点のハンドルで形を変えられます。3D
+                ビューではこの範囲の床を抜いて表示します
+              </Text>
+              {!readOnly && (
+                <Button
+                  size="compact-xs"
+                  variant="light"
+                  color="red"
+                  leftSection={<IconTrash size={14} />}
+                  onClick={wallTools.deleteSelection}
+                >
+                  削除
+                </Button>
+              )}
+            </Stack>
           )}
           <Divider />
           <Group justify="space-between">

@@ -8,6 +8,7 @@ import {
   type Vec2,
 } from "@wifi-planner/domain";
 import type { GridSpec } from "@wifi-planner/propagation";
+import { ShapeUtils, Vector2 } from "three";
 
 // 疑似 3D ビューの形（FR-3.4〜3.6）。ワールド座標の (x, y) と高さ h を、three.js の y 軸を上とする座標 (x, h, -y) に置く。
 
@@ -28,55 +29,129 @@ function quad(corners: [Vec3, Vec3, Vec3, Vec3], uvs: [Vec2, Vec2, Vec2, Vec2]) 
   };
 }
 
-/** 図面の画像を貼る四角形。three.js の画像のテクスチャは上下を反転して読むので、図面の上端を v = 1 にする */
+/** 多角形を軸に沿った長方形の中に切り取る（Sutherland–Hodgman 法） */
+export function clipToRect(points: readonly Vec2[], r: Rect): Vec2[] {
+  const edges: [(p: Vec2) => number, (a: Vec2, b: Vec2) => Vec2][] = [];
+  const at = (a: Vec2, b: Vec2, t: number) => ({
+    x: a.x + (b.x - a.x) * t,
+    y: a.y + (b.y - a.y) * t,
+  });
+  for (const [axis, bound, sign] of [
+    ["x", r.x, 1],
+    ["x", r.x + r.width, -1],
+    ["y", r.y, 1],
+    ["y", r.y + r.height, -1],
+  ] as const) {
+    const inside = (p: Vec2) => sign * (p[axis] - bound);
+    edges.push([inside, (a, b) => at(a, b, inside(a) / (inside(a) - inside(b)))]);
+  }
+  let out = [...points];
+  for (const [inside, cut] of edges) {
+    const input = out;
+    out = [];
+    for (let i = 0; i < input.length; i++) {
+      const cur = input[i]!;
+      const prev = input[(i + input.length - 1) % input.length]!;
+      if (inside(cur) >= 0) {
+        if (inside(prev) < 0) out.push(cut(prev, cur));
+        out.push(cur);
+      } else if (inside(prev) >= 0) {
+        out.push(cut(prev, cur));
+      }
+    }
+  }
+  return out;
+}
+
+const area = (points: readonly Vec2[]) =>
+  points.reduce((sum, p, i) => {
+    const q = points[(i + 1) % points.length]!;
+    return sum + p.x * q.y - q.x * p.y;
+  }, 0) / 2;
+
+/**
+ * 長方形から吹き抜けを抜いた面の三角形。rect と holes は同じ 2D 座標で表し、
+ * to3 と toUv でその座標から頂点の位置と UV を求める。吹き抜けがなければ四角形を 2 つの三角形にする
+ */
+function holedRect(
+  rect: Rect,
+  holes: readonly (readonly Vec2[])[],
+  to3: (p: Vec2) => Vec3,
+  toUv: (p: Vec2) => Vec2,
+) {
+  const pts: Vec2[] = [
+    { x: rect.x, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y + rect.height },
+    { x: rect.x, y: rect.y + rect.height },
+  ];
+  // 長方形の外にはみ出した部分は三角形分割できないので切り取る
+  const clipped = holes
+    .map((h) => clipToRect(h, rect))
+    .filter((h) => h.length >= 3 && Math.abs(area(h)) > 1e-9);
+  if (clipped.length === 0) {
+    return quad(
+      pts.map(to3) as [Vec3, Vec3, Vec3, Vec3],
+      pts.map(toUv) as [Vec2, Vec2, Vec2, Vec2],
+    );
+  }
+  // triangulateShape は閉じた端点の重複を除くために配列を書き換えるので、その後の配列で頂点を並べる
+  const contour = pts.map((p) => new Vector2(p.x, p.y));
+  const holeVecs = clipped.map((h) => h.map((p) => new Vector2(p.x, p.y)));
+  const faces = ShapeUtils.triangulateShape(contour, holeVecs);
+  const all = [...contour, ...holeVecs.flat()].map((v) => ({ x: v.x, y: v.y }));
+  const order = faces.flat();
+  return {
+    positions: Float32Array.from(order.flatMap((i) => to3(all[i]!))),
+    uvs: Float32Array.from(
+      order.flatMap((i) => {
+        const uv = toUv(all[i]!);
+        return [uv.x, uv.y];
+      }),
+    ),
+  };
+}
+
+/**
+ * 図面の画像を貼る面。three.js の画像のテクスチャは上下を反転して読むので、図面の上端を v = 1 にする。
+ * holes は吹き抜けの多角形（図面座標）で、その範囲は抜いて下の階が見えるようにする
+ */
 export function planQuad(
   placement: FloorPlacement,
   extent: Rect,
   imageSize: { width: number; height: number },
   h: number,
+  holes: readonly (readonly Vec2[])[] = [],
 ) {
-  const pts: Vec2[] = [
-    { x: extent.x, y: extent.y },
-    { x: extent.x + extent.width, y: extent.y },
-    { x: extent.x + extent.width, y: extent.y + extent.height },
-    { x: extent.x, y: extent.y + extent.height },
-  ];
-  const corners = pts.map((p) => toThree(planToWorld(placement, p), h)) as [Vec3, Vec3, Vec3, Vec3];
-  const uvs = pts.map((p) => ({ x: p.x / imageSize.width, y: 1 - p.y / imageSize.height })) as [
-    Vec2,
-    Vec2,
-    Vec2,
-    Vec2,
-  ];
-  return quad(corners, uvs);
+  return holedRect(
+    extent,
+    holes,
+    (p) => toThree(planToWorld(placement, p), h),
+    (p) => ({ x: p.x / imageSize.width, y: 1 - p.y / imageSize.height }),
+  );
 }
 
-/** ヒートマップを貼る四角形。格子はフロア座標の軸に沿い、画像の行 0 がフロア座標の y0 の側になる */
-export function heatmapQuad(placement: FloorPlacement, grid: GridSpec, h: number) {
+/**
+ * ヒートマップを貼る面。格子はフロア座標の軸に沿い、画像の行 0 がフロア座標の y0 の側になる。
+ * holes は吹き抜けの多角形（図面座標）で、その範囲は抜く
+ */
+export function heatmapQuad(
+  placement: FloorPlacement,
+  grid: GridSpec,
+  h: number,
+  holes: readonly (readonly Vec2[])[] = [],
+) {
   const x0 = grid.x0 - grid.step / 2;
   const y0 = grid.y0 - grid.step / 2;
-  const x1 = x0 + grid.cols * grid.step;
-  const y1 = y0 + grid.rows * grid.step;
-  const floorPts: Vec2[] = [
-    { x: x0, y: y0 },
-    { x: x1, y: y0 },
-    { x: x1, y: y1 },
-    { x: x0, y: y1 },
-  ];
-  const corners = floorPts.map((p) => toThree(applyRigid(placement.toWorld, p), h)) as [
-    Vec3,
-    Vec3,
-    Vec3,
-    Vec3,
-  ];
+  const width = grid.cols * grid.step;
+  const height = grid.rows * grid.step;
   // データのテクスチャは上下を反転しないので、行 0 を v = 0 にする
-  const uvs: [Vec2, Vec2, Vec2, Vec2] = [
-    { x: 0, y: 0 },
-    { x: 1, y: 0 },
-    { x: 1, y: 1 },
-    { x: 0, y: 1 },
-  ];
-  return quad(corners, uvs);
+  return holedRect(
+    { x: x0, y: y0, width, height },
+    holes.map((hole) => hole.map((p) => placement.plan.toFloor(p))),
+    (p) => toThree(applyRigid(placement.toWorld, p), h),
+    (p) => ({ x: (p.x - x0) / width, y: (p.y - y0) / height }),
+  );
 }
 
 const rgb = (hex: string): Vec3 => [
@@ -85,16 +160,20 @@ const rgb = (hex: string): Vec3 => [
   Number.parseInt(hex.slice(5, 7), 16) / 255,
 ];
 
-/** 壁を、床から天井までの高さを持つ面にする。開口部の区間は開口部の材質の色にする */
+/**
+ * 壁を、床から天井までの高さを持つ面にする。開口部の区間は開口部の材質の色にする。
+ * heightScale は見やすさのために高さ方向だけを引き伸ばす倍率
+ */
 export function wallGeometry(
   floor: Floor,
   placement: FloorPlacement,
   materials: Record<string, Material>,
+  heightScale = 1,
 ) {
   const positions: number[] = [];
   const colors: number[] = [];
-  const bottom = floor.elevationM;
-  const top = floor.elevationM + floor.heightM;
+  const bottom = floor.elevationM * heightScale;
+  const top = (floor.elevationM + floor.heightM) * heightScale;
   const push = (a: Vec2, b: Vec2, color: Vec3) => {
     const wa = planToWorld(placement, a);
     const wb = planToWorld(placement, b);

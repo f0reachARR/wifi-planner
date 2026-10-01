@@ -1,12 +1,22 @@
 import { ProjectDoc, SCHEMA_VERSION } from "./schema.js";
 
 // 文書のスキーマのマイグレーション（設計書 2.2 節）。
-// 版 n から n + 1 への変換を MIGRATIONS[n] に並べる。今は版が 1 つだけなので、変換はまだない。
+// 版 n から n + 1 への変換を MIGRATIONS[n] に並べる。
 
 type RawDoc = Record<string, unknown> & { meta?: { schemaVersion?: number } };
 export type Migration = (doc: RawDoc) => RawDoc;
 
-export const MIGRATIONS: Record<number, Migration> = {};
+export const MIGRATIONS: Record<number, Migration> = {
+  // 版 2 でフロアに吹き抜け（holes）を足した
+  1: (doc) => ({
+    ...doc,
+    floors: Object.fromEntries(
+      Object.entries((doc.floors ?? {}) as Record<string, Record<string, unknown>>).map(
+        ([id, floor]) => [id, { holes: {}, ...floor }],
+      ),
+    ),
+  }),
+};
 
 export class UnsupportedSchemaError extends Error {}
 

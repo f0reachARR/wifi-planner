@@ -23,6 +23,7 @@ describe("Y.Doc との変換", () => {
       },
       aps: {},
       photoPins: {},
+      holes: {},
     };
     const ydoc = new Y.Doc();
     Y.applyUpdate(ydoc, encodeProjectDoc(doc));

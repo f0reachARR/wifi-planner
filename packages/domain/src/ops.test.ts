@@ -4,12 +4,15 @@ import { createEmptyProjectDoc } from "./defaults.js";
 import {
   addAp,
   addFloor,
+  addHole,
   addWall,
   defaultRadios,
   deleteFloor,
+  deleteHoles,
   deleteMaterial,
   duplicateAps,
   mergeWallsById,
+  moveHoles,
   nextApName,
   putApModelSnapshot,
   reorderFloors,
@@ -26,6 +29,37 @@ const fresh = () => {
 };
 
 describe("フロアの操作", () => {
+  it("吹き抜けを足して動かし、消せる", () => {
+    const ydoc = fresh();
+    const f = addFloor(ydoc, { name: "2F", elevationM: 3, heightM: 3 });
+    const square = [
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 10, y: 10 },
+    ];
+    const id = addHole(ydoc, f, { points: square });
+    moveHoles(ydoc, f, [id], 5, -1);
+    expect(readProjectDoc(ydoc).floors[f]?.holes[id]?.points[1]).toEqual({ x: 15, y: -1 });
+    deleteHoles(ydoc, f, [id]);
+    expect(readProjectDoc(ydoc).floors[f]?.holes).toEqual({});
+  });
+
+  it("吹き抜けの集合が無いフロアも読め、吹き抜けを足すと集合を作る", () => {
+    const ydoc = fresh();
+    const f = addFloor(ydoc, { name: "1F", elevationM: 0, heightM: 3 });
+    // 版 2 より前の文書と統合したときのように、集合を消しておく
+    (ydoc.getMap("floors").get(f) as Y.Map<unknown>).delete("holes");
+    expect(readProjectDoc(ydoc).floors[f]?.holes).toEqual({});
+    const id = addHole(ydoc, f, {
+      points: [
+        { x: 0, y: 0 },
+        { x: 1, y: 0 },
+        { x: 0, y: 1 },
+      ],
+    });
+    expect(Object.keys(readProjectDoc(ydoc).floors[f]!.holes)).toEqual([id]);
+  });
+
   it("追加したフロアは上に積まれ、並べ替えで order が振り直される", () => {
     const ydoc = fresh();
     const f1 = addFloor(ydoc, { name: "1F", elevationM: 0, heightM: 3 });

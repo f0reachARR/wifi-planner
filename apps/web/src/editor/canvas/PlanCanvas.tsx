@@ -29,6 +29,7 @@ export type CanvasTool =
   | "crop"
   | "select"
   | "wall"
+  | "hole"
   | "split"
   | "opening"
   | "ap"

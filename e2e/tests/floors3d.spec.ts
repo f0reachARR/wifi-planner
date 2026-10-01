@@ -51,6 +51,14 @@ test("フロアの位置合わせ、重ね表示、疑似 3D ビュー", async (
   await click(page, 0.8, 0.2);
   await expect(page.getByText("基準フロアに位置を合わせました")).toBeVisible();
 
+  // 2F に吹き抜けを描く（FR-3.8）。3 点を置いて Enter で閉じる
+  await tool(page, "吹き抜け");
+  await click(page, 0.4, 0.4);
+  await click(page, 0.6, 0.4);
+  await click(page, 0.6, 0.6);
+  await page.keyboard.press("Enter");
+  await expect(page.getByText(/吹き抜け 1 個を選択中（[\d.]+ m²）/)).toBeVisible();
+
   // 1F を重ねる（FR-3.3）
   await page.getByRole("switch", { name: "1F を重ねる" }).check();
   // ヒートマップの計算も終わっている（AP のないフロアでも「計算中」のままにならない）
@@ -60,6 +68,12 @@ test("フロアの位置合わせ、重ね表示、疑似 3D ビュー", async (
   // 疑似 3D ビュー（FR-3.4〜3.6）
   await page.getByText("3D", { exact: true }).click();
   await expect(page.locator("canvas")).toBeVisible();
+  await expect(page.getByLabel("表示中のフロア")).toHaveText(
+    "表示中のフロア：1F（床 0 m）、2F（床 3 m）",
+  );
+  // 高さだけを引き伸ばしても、床の高さの表示は実際の値のまま（FR-3.7）
+  await page.getByRole("radiogroup", { name: "高さの倍率" }).getByText("×3").click();
+  await expect(page.getByText("高さだけを 3 倍にしています", { exact: false })).toBeVisible();
   await expect(page.getByLabel("表示中のフロア")).toHaveText(
     "表示中のフロア：1F（床 0 m）、2F（床 3 m）",
   );

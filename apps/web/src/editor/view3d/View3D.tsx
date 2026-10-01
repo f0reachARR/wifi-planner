@@ -1,6 +1,6 @@
 import { Box, Group, Paper, SegmentedControl, Stack, Switch, Text } from "@mantine/core";
 import { OrbitControls } from "@react-three/drei";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useThree } from "@react-three/fiber";
 import {
   BAND_LABELS,
   BANDS,
@@ -10,7 +10,7 @@ import {
   floorPlacements,
   type Material,
 } from "@wifi-planner/domain";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { fileUrl } from "../../api/client";
 import { useSession, useSessionState } from "../../collab/react";
@@ -20,6 +20,9 @@ import { sortedFloors } from "../FloorPanel";
 import { heatmapQuad, planQuad, planToWorld, toThree, wallGeometry } from "./scene";
 
 type Layers = { plan: boolean; walls: boolean; aps: boolean; heatmap: boolean };
+
+/** 高さ方向だけを引き伸ばす倍率の選択肢。フロアの間が狭く見えるときに使う */
+const HEIGHT_SCALES = [1, 2, 3, 5] as const;
 
 /** 全フロアを標高に従って積み重ねた疑似 3D ビュー（FR-3.4〜3.6）。表示専用で、文書には書き込まない */
 export function View3D() {
@@ -31,6 +34,7 @@ export function View3D() {
     aps: true,
     heatmap: true,
   });
+  const [heightScale, setHeightScale] = useState<number>(1);
   const floors = sortedFloors(doc?.floors ?? {});
   const placements = useMemo(() => floorPlacements(doc?.floors ?? {}), [doc?.floors]);
   const shown = floors.filter((f) => placements[f.id]);
@@ -52,15 +56,19 @@ export function View3D() {
         [extent.x + extent.width, extent.y + extent.height],
       ]) {
         box.expandByPoint(
-          new THREE.Vector3(...toThree(planToWorld(p, { x: x!, y: y! }), f.elevationM)),
+          new THREE.Vector3(
+            ...toThree(planToWorld(p, { x: x!, y: y! }), f.elevationM * heightScale),
+          ),
         );
         box.expandByPoint(
-          new THREE.Vector3(...toThree(planToWorld(p, { x: x!, y: y! }), f.elevationM + f.heightM)),
+          new THREE.Vector3(
+            ...toThree(planToWorld(p, { x: x!, y: y! }), (f.elevationM + f.heightM) * heightScale),
+          ),
         );
       }
     }
     return box;
-  }, [shown, placements]);
+  }, [shown, placements, heightScale]);
   const center = bounds.isEmpty() ? new THREE.Vector3() : bounds.getCenter(new THREE.Vector3());
   const size = bounds.isEmpty() ? 20 : bounds.getSize(new THREE.Vector3()).length();
 
@@ -81,6 +89,7 @@ export function View3D() {
           }}
         >
           <OrbitControls target={center} makeDefault />
+          <FollowBounds center={center} size={size} />
           <ambientLight intensity={1} />
           {shown.map((f) => (
             <FloorMeshes
@@ -91,6 +100,7 @@ export function View3D() {
               materials={doc.materials}
               band={band}
               layers={layers}
+              heightScale={heightScale}
             />
           ))}
         </Canvas>
@@ -121,13 +131,32 @@ export function View3D() {
                 size="xs"
                 label={label}
                 checked={layers[key]}
-                onChange={(e) => setLayers((l) => ({ ...l, [key]: e.currentTarget.checked }))}
+                onChange={(e) => {
+                  // 更新の関数はあとで呼ばれ、そのときには currentTarget が null になっているので先に読む
+                  const checked = e.currentTarget.checked;
+                  setLayers((l) => ({ ...l, [key]: checked }));
+                }}
               />
             ))}
+          </Group>
+          <Group gap={6}>
+            <Text size="xs">高さ</Text>
+            <SegmentedControl
+              size="xs"
+              aria-label="高さの倍率"
+              value={String(heightScale)}
+              onChange={(v) => setHeightScale(Number(v))}
+              data={HEIGHT_SCALES.map((k) => ({ value: String(k), label: `×${k}` }))}
+            />
           </Group>
           <Text size="xs" aria-label="表示中のフロア">
             表示中のフロア：{shown.map((f) => `${f.name}（床 ${f.elevationM} m）`).join("、")}
           </Text>
+          {heightScale !== 1 && (
+            <Text size="xs" c="dimmed">
+              見やすさのために高さだけを {heightScale} 倍にしています（床の高さの表示は実際の値）
+            </Text>
+          )}
           {floors.length > shown.length && (
             <Text size="xs" c="orange">
               スケールが未校正のフロアは表示していません
@@ -151,8 +180,12 @@ function FloorMeshes(props: {
   band: Band;
   layers: Layers;
   labelSize: number;
+  heightScale: number;
 }) {
-  const { floor, placement, layers } = props;
+  const { floor, placement, layers, heightScale } = props;
+  /** 表示上の高さ。見やすさのために高さ方向だけを引き伸ばす */
+  const h = (m: number) => m * heightScale;
+  const holes = useMemo(() => Object.values(floor.holes).map((x) => x.points), [floor.holes]);
   const session = useSession();
   const { doc } = useSessionState();
   const plan = floor.plan!;
@@ -176,22 +209,22 @@ function FloorMeshes(props: {
     return () => t.dispose();
   }, [session.projectId, plan.imageSha256]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 図面の範囲と置き方が変わったときだけ作り直す
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 図面の範囲と置き方、高さ、吹き抜けが変わったときだけ作り直す
   const planGeom = useMemo(() => {
-    const q = planQuad(placement, extent, imageSize, floor.elevationM);
+    const q = planQuad(placement, extent, imageSize, floor.elevationM * heightScale, holes);
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(q.positions, 3));
     g.setAttribute("uv", new THREE.BufferAttribute(q.uvs, 2));
     return g;
-  }, [placement, JSON.stringify(extent), floor.elevationM]);
+  }, [placement, JSON.stringify(extent), floor.elevationM, heightScale, holes]);
 
   const wallGeom = useMemo(() => {
-    const w = wallGeometry(floor, placement, props.materials);
+    const w = wallGeometry(floor, placement, props.materials, heightScale);
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(w.positions, 3));
     g.setAttribute("color", new THREE.BufferAttribute(w.colors, 3));
     return g;
-  }, [floor, placement, props.materials]);
+  }, [floor, placement, props.materials, heightScale]);
 
   const { result } = useHeatmap(doc, floor.id, props.band, layers.heatmap);
   const heat = useMemo(() => {
@@ -208,16 +241,16 @@ function FloorMeshes(props: {
     tex.magFilter = THREE.LinearFilter;
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.needsUpdate = true;
-    const q = heatmapQuad(placement, result.grid, floor.elevationM + 0.02);
+    const q = heatmapQuad(placement, result.grid, floor.elevationM * heightScale + 0.02, holes);
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(q.positions, 3));
     g.setAttribute("uv", new THREE.BufferAttribute(q.uvs, 2));
     return { tex, g };
-  }, [result, placement, floor.elevationM, doc]);
+  }, [result, placement, floor.elevationM, doc, heightScale, holes]);
 
   const labelAt = toThree(
     planToWorld(placement, { x: extent.x, y: extent.y }),
-    floor.elevationM + floor.heightM,
+    h(floor.elevationM + floor.heightM),
   );
 
   return (
@@ -260,7 +293,10 @@ function FloorMeshes(props: {
         Object.entries(floor.aps).map(([id, ap]) => (
           <mesh
             key={id}
-            position={toThree(planToWorld(placement, ap.position), floor.elevationM + ap.heightM)}
+            position={toThree(
+              planToWorld(placement, ap.position),
+              h(floor.elevationM + ap.heightM),
+            )}
           >
             <sphereGeometry args={[0.25, 16, 12]} />
             <meshBasicMaterial color={ap.radios.some((r) => r.enabled) ? "#e8590c" : "#868e96"} />
@@ -269,6 +305,28 @@ function FloorMeshes(props: {
       <FloorLabel text={floor.name} position={labelAt} size={props.labelSize} />
     </group>
   );
+}
+
+/**
+ * 高さの倍率などで全体の範囲が変わったとき、視点の向きを保ったままカメラを新しい範囲に合わせて動かす。
+ * カメラの初期位置は Canvas を作るときにしか決められないため
+ */
+function FollowBounds({ center, size }: { center: THREE.Vector3; size: number }) {
+  const camera = useThree((s) => s.camera);
+  const prev = useRef<{ center: THREE.Vector3; size: number }>(undefined);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: center は毎回作り直されるので成分で比べる
+  useEffect(() => {
+    const p = prev.current;
+    if (p && size > 0 && p.size > 0) {
+      const offset = camera.position
+        .clone()
+        .sub(p.center)
+        .multiplyScalar(size / p.size);
+      camera.position.copy(center).add(offset);
+    }
+    prev.current = { center: center.clone(), size };
+  }, [camera, center.x, center.y, center.z, size]);
+  return null;
 }
 
 /** フロアの名前。文字を描いたキャンバスをテクスチャにしたスプライトで、常に画面に向けて描く */

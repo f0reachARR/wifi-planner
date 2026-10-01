@@ -7,6 +7,8 @@ import {
   type ApModel,
   Ap as ApSchema,
   type Floor,
+  type Hole,
+  Hole as HoleSchema,
   type Material,
   type PhotoPin,
   type ProjectSettings,
@@ -27,11 +29,11 @@ export function floorMap(ydoc: Y.Doc, floorId: string): YMap | undefined {
   return floorsMap(ydoc).get(floorId);
 }
 
-/** フロアの要素の集合（walls、aps、photoPins） */
+/** フロアの要素の集合（walls、aps、photoPins、holes） */
 export function floorCollection(
   ydoc: Y.Doc,
   floorId: string,
-  key: "walls" | "aps" | "photoPins",
+  key: "walls" | "aps" | "photoPins" | "holes",
 ): Y.Map<YMap> | undefined {
   return floorMap(ydoc, floorId)?.get(key) as Y.Map<YMap> | undefined;
 }
@@ -56,7 +58,14 @@ export function addFloor(ydoc: Y.Doc, input: NewFloor): string {
   let maxOrder = -1;
   for (const f of floors.values()) maxOrder = Math.max(maxOrder, Number(f.get("order") ?? 0));
   const id = newId();
-  const floor: Floor = { ...input, order: maxOrder + 1, walls: {}, aps: {}, photoPins: {} };
+  const floor: Floor = {
+    ...input,
+    order: maxOrder + 1,
+    walls: {},
+    aps: {},
+    photoPins: {},
+    holes: {},
+  };
   setEntity(floors as YMap, id, floor, FLOOR_SHAPE);
   return id;
 }
@@ -377,4 +386,63 @@ export function updatePhotoPin(
 
 export function deletePhotoPin(ydoc: Y.Doc, floorId: string, pinId: string): void {
   pinsOf(ydoc, floorId).delete(pinId);
+}
+
+// ---- 吹き抜け ----
+
+/** 吹き抜けの集合。版 2 より前に作ったフロアには無いことがあるので、そのときは作る */
+function holesOf(ydoc: Y.Doc, floorId: string) {
+  const floor = floorMap(ydoc, floorId);
+  if (!floor) throw new Error(`フロアがない: ${floorId}`);
+  let holes = floor.get("holes") as Y.Map<YMap> | undefined;
+  if (!holes) {
+    holes = new Y.Map<YMap>();
+    floor.set("holes", holes);
+  }
+  return holes;
+}
+
+export function readHole(ydoc: Y.Doc, floorId: string, holeId: string): Hole | undefined {
+  const map = floorCollection(ydoc, floorId, "holes")?.get(holeId);
+  if (!map) return undefined;
+  const parsed = HoleSchema.safeParse(fromY(map));
+  return parsed.success ? parsed.data : undefined;
+}
+
+export function addHole(ydoc: Y.Doc, floorId: string, hole: Hole): string {
+  const id = newId();
+  setEntity(holesOf(ydoc, floorId) as YMap, id, hole);
+  return id;
+}
+
+export function updateHole(
+  ydoc: Y.Doc,
+  floorId: string,
+  holeId: string,
+  patch: Partial<Hole>,
+): void {
+  const map = holesOf(ydoc, floorId).get(holeId);
+  if (map) updateFields(map, patch);
+}
+
+/** 吹き抜けを消す。吹き抜けでない ID は無視する */
+export function deleteHoles(ydoc: Y.Doc, floorId: string, holeIds: readonly string[]): void {
+  const holes = holesOf(ydoc, floorId);
+  for (const id of holeIds) holes.delete(id);
+}
+
+export function moveHoles(
+  ydoc: Y.Doc,
+  floorId: string,
+  holeIds: readonly string[],
+  dx: number,
+  dy: number,
+) {
+  for (const id of holeIds) {
+    const hole = readHole(ydoc, floorId, id);
+    if (hole)
+      updateHole(ydoc, floorId, id, {
+        points: hole.points.map((p) => ({ x: p.x + dx, y: p.y + dy })),
+      });
+  }
 }
