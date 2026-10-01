@@ -47,6 +47,32 @@ export const MATERIAL_PRESETS: Record<string, Material> = {
     lossDb: { "2.4": 15, "5": 20, "6": 25 },
     presetKey: "metalDoor",
   },
+  slab: {
+    name: "RC 床スラブ",
+    color: "#78716c",
+    lossDb: { "2.4": 20, "5": 25, "6": 28 },
+    presetKey: "slab",
+  },
 };
 
 export const DEFAULT_WALL_MATERIAL_ID = "concrete";
+
+/** 床スラブのプリセットの presetKey。新しいフロアの床スラブと、材質が無いときの代わりに使う */
+export const SLAB_PRESET_KEY = "slab";
+
+/** presetKey が床スラブのプリセットである材質の ID */
+export function slabPresetId(materials: Record<string, Material>): string | undefined {
+  return Object.entries(materials).find(([, m]) => m.presetKey === SLAB_PRESET_KEY)?.[0];
+}
+
+/**
+ * フロアの床スラブの材質 ID（設計書 2.2 節）。未設定か、指す材質が消えていれば床スラブのプリセットを使う。
+ * それも無ければ undefined で、床スラブの減衰は 0 dB とする
+ */
+export function slabMaterialOf(
+  materials: Record<string, Material>,
+  floor: { slabMaterialId?: string },
+): string | undefined {
+  if (floor.slabMaterialId && materials[floor.slabMaterialId]) return floor.slabMaterialId;
+  return slabPresetId(materials);
+}

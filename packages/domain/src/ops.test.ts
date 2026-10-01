@@ -16,6 +16,7 @@ import {
   nextApName,
   putApModelSnapshot,
   reorderFloors,
+  setWallsHeight,
   setWallsMaterial,
   splitWallAt,
   updateFloor,
@@ -126,8 +127,28 @@ describe("壁と材質の操作", () => {
     ]);
   });
 
-  it("材質を消すと、使っていた壁と開口部を付け替える", () => {
+  it("新しいフロアの床スラブはプリセットの材質にする", () => {
+    const { ydoc, floorId } = setup();
+    expect(readProjectDoc(ydoc).floors[floorId]!.slabMaterialId).toBe("slab");
+  });
+
+  it("壁の高さをまとめて変え、undefined で既定に戻す", () => {
     const { ydoc, floorId, wallId } = setup();
+    setWallsHeight(ydoc, floorId, [wallId], { bottomM: 1, topM: 2.5 });
+    expect(readProjectDoc(ydoc).floors[floorId]!.walls[wallId]).toMatchObject({
+      bottomM: 1,
+      topM: 2.5,
+    });
+    setWallsHeight(ydoc, floorId, [wallId], { topM: undefined });
+    const wall = readProjectDoc(ydoc).floors[floorId]!.walls[wallId]!;
+    expect(wall.bottomM).toBe(1);
+    expect("topM" in wall).toBe(false);
+  });
+
+  it("材質を消すと、使っていた壁と開口部と床スラブを付け替える", () => {
+    const { ydoc, floorId, wallId } = setup();
+    deleteMaterial(ydoc, "slab", "concrete");
+    expect(readProjectDoc(ydoc).floors[floorId]!.slabMaterialId).toBe("concrete");
     deleteMaterial(ydoc, "woodDoor", "glass");
     setWallsMaterial(ydoc, floorId, [wallId], "block");
     const doc = readProjectDoc(ydoc);

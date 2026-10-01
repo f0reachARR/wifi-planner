@@ -97,12 +97,13 @@ export function reverseWall(wall: Wall): Wall {
 }
 
 /**
- * 端点を共有し、材質が同じ 2 本の壁を 1 本にする（FR-4.4）。
+ * 端点を共有し、材質と高さの範囲が同じ 2 本の壁を 1 本にする（FR-4.4）。
  * 向きが合わなければ反転してからつなぎ、後ろの壁の開口部は前の壁の長さだけずらす。
  * 結合できないときは undefined を返す。
  */
 export function mergeWalls(a: Wall, b: Wall, tolerance = 1e-6): Wall | undefined {
-  if (a.materialId !== b.materialId) return undefined;
+  if (a.materialId !== b.materialId || a.bottomM !== b.bottomM || a.topM !== b.topM)
+    return undefined;
   const near = (p: Vec2, q: Vec2) => distance(p, q) <= tolerance;
   const aStart = a.points[0]!;
   const aEnd = a.points.at(-1)!;
@@ -156,4 +157,102 @@ export function canPlaceOpening(
   const total = polylineLength(wall.points);
   if (start < 0 || end > total + 1e-9 || start >= end) return false;
   return wall.openings.every((o) => o.id === ignoreId || o.end <= start || o.start >= end);
+}
+
+/** 床からの高さの範囲。下端を含み上端を含まない（設計書 6.1.1 節） */
+export type HeightRange = { bottom: number; top: number };
+
+/** 壁の高さの範囲（FR-4.10）。指定が無ければ床から天井まで */
+export function wallHeightRange(
+  wall: Pick<Wall, "bottomM" | "topM">,
+  floorHeightM: number,
+): HeightRange {
+  return { bottom: wall.bottomM ?? 0, top: wall.topM ?? floorHeightM };
+}
+
+/** 開口部の高さの範囲。指定が無ければ壁と同じで、壁の範囲からはみ出す部分は切り取る */
+export function openingHeightRange(
+  opening: Pick<Opening, "bottomM" | "topM">,
+  wall: HeightRange,
+): HeightRange {
+  return {
+    bottom: Math.max(wall.bottom, opening.bottomM ?? wall.bottom),
+    top: Math.min(wall.top, opening.topM ?? wall.top),
+  };
+}
+
+/**
+ * 開口部のある区間を、高さの範囲ごとに開口部と壁に分ける（設計書 4.1 節）。
+ * 開口部の下と上に残る壁の部分は壁の材質になる。空の範囲は返さない
+ */
+export function splitByOpeningHeight(
+  wall: HeightRange,
+  opening: HeightRange,
+): { range: HeightRange; isOpening: boolean }[] {
+  const parts = [
+    { range: { bottom: wall.bottom, top: Math.min(opening.bottom, wall.top) }, isOpening: false },
+    { range: opening, isOpening: true },
+    { range: { bottom: Math.max(opening.top, wall.bottom), top: wall.top }, isOpening: false },
+  ];
+  return parts.filter((p) => p.range.top > p.range.bottom);
+}
+
+/** 重なりを調べる壁。座標はメートルの共通の座標、高さは絶対の高さ */
+export type WallSpan = { key: string; points: readonly Vec2[]; range: HeightRange };
+
+const OVERLAP = { sinAngle: Math.sin((1 * Math.PI) / 180), distanceM: 0.05, minOverlapM: 0.1 };
+
+/**
+ * 平面で同じ線の上に重なり、高さの範囲も重なる壁の組（FR-4.11、設計書 4.1.1 節）。
+ * 重なった部分の減衰を二重に数えることになるので、警告に使う。同じ壁の中の重なりは調べない
+ */
+export function overlappingWalls(spans: readonly WallSpan[]): [string, string][] {
+  type Seg = { key: string; ax: number; ay: number; bx: number; by: number; range: HeightRange };
+  const segs: Seg[] = [];
+  for (const s of spans) {
+    for (let i = 1; i < s.points.length; i++) {
+      const a = s.points[i - 1]!;
+      const b = s.points[i]!;
+      if (a.x !== b.x || a.y !== b.y)
+        segs.push({ key: s.key, ax: a.x, ay: a.y, bx: b.x, by: b.y, range: s.range });
+    }
+  }
+  const tol = OVERLAP.distanceM;
+  const found = new Set<string>();
+  const out: [string, string][] = [];
+  for (let i = 0; i < segs.length; i++) {
+    const p = segs[i]!;
+    const ux = p.bx - p.ax;
+    const uy = p.by - p.ay;
+    const len = Math.hypot(ux, uy);
+    for (let j = i + 1; j < segs.length; j++) {
+      const q = segs[j]!;
+      if (q.key === p.key) continue;
+      const pair = p.key < q.key ? `${p.key}\n${q.key}` : `${q.key}\n${p.key}`;
+      if (found.has(pair)) continue;
+      if (
+        Math.max(q.ax, q.bx) < Math.min(p.ax, p.bx) - tol ||
+        Math.min(q.ax, q.bx) > Math.max(p.ax, p.bx) + tol ||
+        Math.max(q.ay, q.by) < Math.min(p.ay, p.by) - tol ||
+        Math.min(q.ay, q.by) > Math.max(p.ay, p.by) + tol
+      )
+        continue;
+      if (Math.max(p.range.bottom, q.range.bottom) >= Math.min(p.range.top, q.range.top)) continue;
+      const vx = q.bx - q.ax;
+      const vy = q.by - q.ay;
+      const qlen = Math.hypot(vx, vy);
+      if (Math.abs(ux * vy - uy * vx) > OVERLAP.sinAngle * len * qlen) continue;
+      // q の両端が p の直線の近くにあり、p の向きに沿って重なる長さが十分あるか
+      const off = (x: number, y: number) => Math.abs(ux * (y - p.ay) - uy * (x - p.ax)) / len;
+      if (off(q.ax, q.ay) > tol || off(q.bx, q.by) > tol) continue;
+      const along = (x: number, y: number) => (ux * (x - p.ax) + uy * (y - p.ay)) / len;
+      const t0 = along(q.ax, q.ay);
+      const t1 = along(q.bx, q.by);
+      const overlap = Math.min(len, Math.max(t0, t1)) - Math.max(0, Math.min(t0, t1));
+      if (overlap < OVERLAP.minOverlapM) continue;
+      found.add(pair);
+      out.push([p.key, q.key]);
+    }
+  }
+  return out;
 }

@@ -2,12 +2,16 @@ import {
   applyRigid,
   type Floor,
   type FloorPlacement,
+  type HeightRange,
   type Material,
+  openingHeightRange,
   pointAtLength,
   type Rect,
+  splitByOpeningHeight,
   type Vec2,
+  wallHeightRange,
 } from "@wifi-planner/domain";
-import type { GridSpec } from "@wifi-planner/propagation";
+import type { GridSpec, SectionGrid } from "@wifi-planner/propagation";
 import { ShapeUtils, Vector2 } from "three";
 
 // 疑似 3D ビューの形（FR-3.4〜3.6）。ワールド座標の (x, y) と高さ h を、three.js の y 軸を上とする座標 (x, h, -y) に置く。
@@ -154,6 +158,30 @@ export function heatmapQuad(
   );
 }
 
+/**
+ * 縦の断面（FR-3.9）を貼る鉛直な四角形。格子の端の点を四角形の端に置き、テクセルの中心が格子の点に重なるよう UV を内側に寄せる。
+ * データのテクスチャは上下を反転しないので、格子の行 0（最も低い点）を v の小さい側にする
+ */
+export function sectionQuad(grid: SectionGrid, heightScale = 1) {
+  const s1 = grid.s0 + (grid.cols - 1) * grid.step;
+  const z1 = grid.z0 + (grid.rows - 1) * grid.step;
+  const at = (s: number, z: number): Vec3 =>
+    toThree({ x: grid.ox + grid.ux * s, y: grid.oy + grid.uy * s }, z * heightScale);
+  const u0 = 0.5 / grid.cols;
+  const u1 = 1 - u0;
+  const v0 = 0.5 / grid.rows;
+  const v1 = 1 - v0;
+  return quad(
+    [at(grid.s0, z1), at(s1, z1), at(s1, grid.z0), at(grid.s0, grid.z0)],
+    [
+      { x: u0, y: v1 },
+      { x: u1, y: v1 },
+      { x: u1, y: v0 },
+      { x: u0, y: v0 },
+    ],
+  );
+}
+
 const rgb = (hex: string): Vec3 => [
   Number.parseInt(hex.slice(1, 3), 16) / 255,
   Number.parseInt(hex.slice(3, 5), 16) / 255,
@@ -161,8 +189,8 @@ const rgb = (hex: string): Vec3 => [
 ];
 
 /**
- * 壁を、床から天井までの高さを持つ面にする。開口部の区間は開口部の材質の色にする。
- * heightScale は見やすさのために高さ方向だけを引き伸ばす倍率
+ * 壁を、壁ごとの高さの範囲（FR-4.10）を持つ面にする。開口部の区間は、開口部の高さの範囲を開口部の材質の色にし、
+ * その上下を壁の材質の色にする。heightScale は見やすさのために高さ方向だけを引き伸ばす倍率
  */
 export function wallGeometry(
   floor: Floor,
@@ -172,9 +200,9 @@ export function wallGeometry(
 ) {
   const positions: number[] = [];
   const colors: number[] = [];
-  const bottom = floor.elevationM * heightScale;
-  const top = (floor.elevationM + floor.heightM) * heightScale;
-  const push = (a: Vec2, b: Vec2, color: Vec3) => {
+  const push = (a: Vec2, b: Vec2, color: Vec3, range: HeightRange) => {
+    const bottom = (floor.elevationM + range.bottom) * heightScale;
+    const top = (floor.elevationM + range.top) * heightScale;
     const wa = planToWorld(placement, a);
     const wb = planToWorld(placement, b);
     const corners: Vec3[] = [
@@ -190,6 +218,7 @@ export function wallGeometry(
   };
   for (const wall of Object.values(floor.walls)) {
     const base = rgb(materials[wall.materialId]?.color ?? "#888888");
+    const range = wallHeightRange(wall, floor.heightM);
     const cuts = new Set<number>([0]);
     let total = 0;
     for (let i = 1; i < wall.points.length; i++) {
@@ -210,8 +239,15 @@ export function wallGeometry(
       if (s1 - s0 < 1e-9) continue;
       const mid = (s0 + s1) / 2;
       const opening = wall.openings.find((o) => o.start <= mid && mid < o.end);
-      const color = opening ? rgb(materials[opening.materialId]?.color ?? "#888888") : base;
-      push(pointAtLength(wall.points, s0).point, pointAtLength(wall.points, s1).point, color);
+      const a = pointAtLength(wall.points, s0).point;
+      const b = pointAtLength(wall.points, s1).point;
+      if (!opening) {
+        push(a, b, base, range);
+        continue;
+      }
+      const color = rgb(materials[opening.materialId]?.color ?? "#888888");
+      for (const part of splitByOpeningHeight(range, openingHeightRange(opening, range)))
+        push(a, b, part.isOpening ? color : base, part.range);
     }
   }
   return { positions: Float32Array.from(positions), colors: Float32Array.from(colors) };

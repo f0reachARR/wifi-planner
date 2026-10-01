@@ -51,6 +51,7 @@ import {
   BANDS,
   type Band,
   distance,
+  type Floor,
   floorPlacements,
   metersPerUnit,
   planToPlan,
@@ -66,6 +67,7 @@ import {
   putApModelSnapshot,
   updateFloor,
 } from "@wifi-planner/domain/ops";
+import type { SceneNotes } from "@wifi-planner/propagation";
 import { useMemo, useState } from "react";
 import { useApModels } from "../api/hooks";
 import { useSession, useSessionState } from "../collab/react";
@@ -97,6 +99,7 @@ import { ScaleModal } from "./ScaleModal";
 import { GuideLayer } from "./snap/SnapMarker";
 import { useSnapGuides } from "./snap/useSnapGuides";
 import { HoleLayer } from "./walls/HoleLayer";
+import { floorWallOverlaps } from "./walls/overlaps";
 import { useWallTools } from "./walls/useWallTools";
 import { WallInspector } from "./walls/WallInspector";
 import { WallLayer } from "./walls/WallLayer";
@@ -190,9 +193,33 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
   const [editingPropagation, setEditingPropagation] = useState(false);
   const [hoverStore] = useState(createHoverStore);
   const transform = planTransform(floor.plan, floor.scale);
+  // 高さの範囲が重なる壁（FR-4.11）。許容する距離はメートルなので、スケールを校正したフロアだけで調べる
+  const { pairs: overlaps, ownIds: overlapIds } = useMemo(
+    () => floorWallOverlaps(doc?.floors ?? {}, floor.id),
+    [doc?.floors, floor.id],
+  );
   const { result, pending } = useHeatmap(doc, floor.id, band, showHeatmap && !!transform);
   const legend = doc?.settings.legend;
   const okResult = result?.status === "ok" ? result : undefined;
+  // 対象の AP の選択肢（FR-8.3）。このフロアの AP と、計算に含めた他のフロアの AP をフロアごとにまとめる
+  const apOptions = useMemo(() => {
+    const otherFloorIds = new Set(
+      (okResult?.radios ?? []).map((r) => r.floorId).filter((id) => id !== floor.id),
+    );
+    const groups = [{ group: floor.name, items: aps.map((a) => ({ value: a.id, label: a.name })) }];
+    for (const f of sortedFloors(doc?.floors ?? {})) {
+      if (!otherFloorIds.has(f.id)) continue;
+      groups.push({
+        group: f.name,
+        items: Object.entries(f.aps).map(([id, a]) => ({ value: id, label: a.name })),
+      });
+    }
+    return groups;
+  }, [okResult, floor.id, floor.name, aps, doc?.floors]);
+  const apOptionIds = useMemo(
+    () => new Set(apOptions.flatMap((g) => g.items.map((i) => i.value))),
+    [apOptions],
+  );
   const pixels = useMemo(
     () =>
       okResult && legend
@@ -386,6 +413,7 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                 walls={walls}
                 materials={materials}
                 selection={wallTools.selectionSet}
+                warned={overlapIds}
                 peers={floorPeers}
                 drafts={wallTools.drafts}
                 px={px}
@@ -730,7 +758,8 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
               store={hoverStore}
               result={okResult}
               transform={transform}
-              floor={floor}
+              floors={doc?.floors ?? {}}
+              floorId={floor.id}
               thresholdDbm={legend.goodThresholdDbm}
             />
             <Legend
@@ -884,8 +913,8 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
             size="xs"
             label="対象の AP"
             placeholder={apFilter.length === 0 ? "すべて" : undefined}
-            data={aps.map((a) => ({ value: a.id, label: a.name }))}
-            value={apFilter.filter((id) => floor.aps[id])}
+            data={apOptions}
+            value={apFilter.filter((id) => apOptionIds.has(id))}
             onChange={setApFilter}
             clearable
             searchable
@@ -899,6 +928,7 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
                   ? `${okResult.radios.length} 本のラジオを計算済み（${okResult.grid.cols}×${okResult.grid.rows} 点、${okResult.elapsedMs.toFixed(0)} ms）`
                   : ""}
           </Text>
+          {okResult && <CalculationNotes notes={okResult.notes} floors={doc?.floors ?? {}} />}
           <Divider />
           <Text fw={600} size="sm">
             フロアの重ね表示
@@ -963,6 +993,24 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
               材質
             </Button>
           </Group>
+          {overlaps.length > 0 && (
+            <Alert color="orange" p={6}>
+              <Stack gap={4} align="flex-start">
+                <Text size="xs">
+                  同じ線の上で高さの範囲が重なる壁が {overlaps.length}{" "}
+                  組あります。重なった部分では減衰を二重に数えます。
+                </Text>
+                <Button
+                  size="compact-xs"
+                  variant="light"
+                  color="orange"
+                  onClick={() => wallTools.setSelection([...overlapIds])}
+                >
+                  重なる壁を選択
+                </Button>
+              </Stack>
+            </Alert>
+          )}
           {!readOnly && !extractionOpen && (
             <Button
               size="compact-xs"
@@ -977,6 +1025,7 @@ export function FloorView({ floor }: { floor: FloorEntry }) {
             (selectedAps.length === 0 && selectedHoles.length === 0)) && (
             <WallInspector
               floorId={floor.id}
+              floorHeightM={floor.heightM}
               walls={walls}
               materials={materials}
               selection={selectedWalls}
@@ -1112,4 +1161,27 @@ function CalibrationModal(props: {
 
 function formatRatio(n: number): string {
   return n >= 10 ? String(Math.round(n)) : n.toFixed(1);
+}
+
+/** 計算に含めなかったフロアの扱い（設計書 6.4 節）を知らせる */
+function CalculationNotes({ notes, floors }: { notes: SceneNotes; floors: Record<string, Floor> }) {
+  const names = (ids: readonly string[]) => ids.map((id) => floors[id]?.name ?? "?").join("、");
+  const lines = [
+    notes.isolated &&
+      "位置合わせをしていないので、このフロアの AP と壁だけで計算しています。他のフロアの電波は含みません",
+    notes.fullSlabFloorIds.length > 0 &&
+      `${names(notes.fullSlabFloorIds)} は位置が分からないので、床スラブが全面にあるものとして計算しています`,
+    notes.noSlabMaterialFloorIds.length > 0 &&
+      `${names(notes.noSlabMaterialFloorIds)} は床スラブの材質が無いので、床の減衰を 0 dB にしています`,
+  ].filter((x): x is string => !!x);
+  if (lines.length === 0) return null;
+  return (
+    <Stack gap={2} aria-label="計算の注意">
+      {lines.map((line) => (
+        <Text key={line} size="xs" c="orange">
+          {line}
+        </Text>
+      ))}
+    </Stack>
+  );
 }

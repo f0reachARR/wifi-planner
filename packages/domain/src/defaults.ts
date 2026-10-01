@@ -20,6 +20,7 @@ export function defaultSettings(): ProjectSettings {
       goodThresholdDbm: -67,
       hideBelow: false,
     },
+    crossFloorRange: null,
   };
 }
 

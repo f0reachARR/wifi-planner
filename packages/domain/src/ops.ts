@@ -2,6 +2,7 @@ import * as Y from "yjs";
 import type { Band } from "./band.js";
 import type { ChannelWidth } from "./channels.js";
 import type { Vec2 } from "./geometry.js";
+import { slabPresetId } from "./materials.js";
 import {
   type Ap,
   type ApModel,
@@ -58,6 +59,7 @@ export function addFloor(ydoc: Y.Doc, input: NewFloor): string {
   let maxOrder = -1;
   for (const f of floors.values()) maxOrder = Math.max(maxOrder, Number(f.get("order") ?? 0));
   const id = newId();
+  const slabMaterialId = slabPresetId(fromY(ydoc.getMap("materials")) as Record<string, Material>);
   const floor: Floor = {
     ...input,
     order: maxOrder + 1,
@@ -65,6 +67,7 @@ export function addFloor(ydoc: Y.Doc, input: NewFloor): string {
     aps: {},
     photoPins: {},
     holes: {},
+    ...(slabMaterialId ? { slabMaterialId } : {}),
   };
   setEntity(floors as YMap, id, floor, FLOOR_SHAPE);
   return id;
@@ -73,7 +76,12 @@ export function addFloor(ydoc: Y.Doc, input: NewFloor): string {
 export function updateFloor(
   ydoc: Y.Doc,
   floorId: string,
-  patch: Partial<Pick<Floor, "name" | "elevationM" | "heightM" | "plan" | "scale" | "alignment">>,
+  patch: Partial<
+    Pick<
+      Floor,
+      "name" | "elevationM" | "heightM" | "plan" | "scale" | "alignment" | "slabMaterialId"
+    >
+  >,
 ): void {
   const floor = floorMap(ydoc, floorId);
   if (floor) updateFields(floor, patch);
@@ -152,6 +160,23 @@ export function setWallsMaterial(
   }
 }
 
+/**
+ * 選んだ壁の高さの範囲をまとめて変える（FR-4.6、FR-4.10）。
+ * patch に含めたフィールドだけを書き、値が undefined なら既定（0 m と階高）に戻す
+ */
+export function setWallsHeight(
+  ydoc: Y.Doc,
+  floorId: string,
+  wallIds: readonly string[],
+  patch: { bottomM?: number | undefined; topM?: number | undefined },
+) {
+  const walls = wallsOf(ydoc, floorId);
+  for (const id of wallIds) {
+    const map = walls.get(id);
+    if (map) updateFields(map, patch);
+  }
+}
+
 export function moveWalls(
   ydoc: Y.Doc,
   floorId: string,
@@ -212,10 +237,11 @@ export function updateMaterial(ydoc: Y.Doc, materialId: string, patch: Partial<M
   if (map) updateFields(map, patch);
 }
 
-/** 材質を消す。その材質を使っている壁と開口部は replacementId に付け替える */
+/** 材質を消す。その材質を使っている壁、開口部、床スラブは replacementId に付け替える */
 export function deleteMaterial(ydoc: Y.Doc, materialId: string, replacementId: string): void {
   if (materialId === replacementId) return;
   for (const floor of floorsMap(ydoc).values()) {
+    if (floor.get("slabMaterialId") === materialId) floor.set("slabMaterialId", replacementId);
     const walls = floor.get("walls") as Y.Map<YMap> | undefined;
     for (const wall of walls?.values() ?? []) {
       if (wall.get("materialId") === materialId) wall.set("materialId", replacementId);

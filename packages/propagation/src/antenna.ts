@@ -137,7 +137,19 @@ export function antennaFrame(mount: MountType, azimuthDeg: number, tiltDeg: numb
   return Float64Array.from([...x, ...y, ...z]);
 }
 
-/** フロア座標の方向ベクトル（正規化不要）に対する利得 */
+/**
+ * 基底を鉛直軸のまわりに回す。フロア座標で作った基底を、フロアからワールドへの回転（cos、sin）でワールド座標に移すのに使う
+ */
+export function rotateFrame(f: Frame, cos: number, sin: number): Frame {
+  const out = Float64Array.from(f);
+  for (let k = 0; k < 9; k += 3) {
+    out[k] = cos * f[k]! - sin * f[k + 1]!;
+    out[k + 1] = sin * f[k]! + cos * f[k + 1]!;
+  }
+  return out;
+}
+
+/** 基底と同じ座標の方向ベクトル（正規化不要）に対する利得 */
 export function gainToward(pattern: CompiledPattern, f: Frame, dx: number, dy: number, dz: number) {
   const len = Math.hypot(dx, dy, dz);
   if (len === 0) return pattern(1, 0, 0);

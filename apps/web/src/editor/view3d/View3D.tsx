@@ -1,4 +1,14 @@
-import { Box, Group, Paper, SegmentedControl, Slider, Stack, Switch, Text } from "@mantine/core";
+import {
+  Box,
+  Button,
+  Group,
+  Paper,
+  SegmentedControl,
+  Slider,
+  Stack,
+  Switch,
+  Text,
+} from "@mantine/core";
 import { OrbitControls } from "@react-three/drei";
 import { Canvas, useThree } from "@react-three/fiber";
 import {
@@ -9,15 +19,17 @@ import {
   type FloorPlacement,
   floorPlacements,
   type Material,
+  type ProjectDoc,
 } from "@wifi-planner/domain";
+import { type SectionParams, sectionBounds, sectionOffsetRange } from "@wifi-planner/propagation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { fileUrl } from "../../api/client";
 import { useSession, useSessionState } from "../../collab/react";
 import { composeImage } from "../../propagation/render";
-import { useHeatmap } from "../../propagation/useHeatmap";
+import { useHeatmap, useSectionHeatmap } from "../../propagation/useHeatmap";
 import { sortedFloors } from "../FloorPanel";
-import { heatmapQuad, planQuad, planToWorld, toThree, wallGeometry } from "./scene";
+import { heatmapQuad, planQuad, planToWorld, sectionQuad, toThree, wallGeometry } from "./scene";
 
 type Layers = { plan: boolean; walls: boolean; aps: boolean; heatmap: boolean };
 /** 図面と壁の不透明度。上の階で下の階が隠れないよう、既定では半透明にする */
@@ -38,6 +50,14 @@ export function View3D() {
   });
   const [heightScale, setHeightScale] = useState<number>(1);
   const [opacity, setOpacity] = useState<Opacities>({ plan: 0.5, walls: 0.55 });
+  // 縦の断面（FR-3.9）。向きと位置は表示の設定なので、文書には書かない
+  const [section, setSection] = useState({ on: false, angleDeg: 0, offsetM: 0, opacity: 0.8 });
+  const sBounds = useMemo(() => sectionBounds({ floors: doc?.floors ?? {} }), [doc?.floors]);
+  const [offsetMin, offsetMax] = sBounds ? sectionOffsetRange(sBounds, section.angleDeg) : [0, 0];
+  // 向きを変えて範囲が狭まったときは、範囲の中に収める
+  const offsetM = Math.min(offsetMax, Math.max(offsetMin, section.offsetM));
+  const sectionParams: SectionParams = { angleDeg: section.angleDeg, offsetM };
+  const sectionResult = useSectionHeatmap(doc, band, sectionParams, section.on && !!sBounds);
   const floors = sortedFloors(doc?.floors ?? {});
   const placements = useMemo(() => floorPlacements(doc?.floors ?? {}), [doc?.floors]);
   const shown = floors.filter((f) => placements[f.id]);
@@ -107,6 +127,14 @@ export function View3D() {
               opacity={opacity}
             />
           ))}
+          {section.on && sectionResult.result?.status === "ok" && (
+            <SectionMesh
+              result={sectionResult.result}
+              doc={doc}
+              heightScale={heightScale}
+              opacity={section.opacity}
+            />
+          )}
         </Canvas>
       )}
       <Paper pos="absolute" top={8} left={8} p="xs" shadow="sm" withBorder>
@@ -170,6 +198,22 @@ export function View3D() {
               />
             </Group>
           ))}
+          <SectionControls
+            section={section}
+            setSection={setSection}
+            offsetM={offsetM}
+            offsetRange={[offsetMin, offsetMax]}
+            available={!!sBounds}
+            status={
+              sectionResult.pending
+                ? "断面を計算中…"
+                : sectionResult.result?.status === "ok"
+                  ? `断面：${sectionResult.result.grid.cols}×${sectionResult.result.grid.rows} 点、${sectionResult.result.radios.length} 本のラジオ`
+                  : sectionResult.result?.status === "empty"
+                    ? "断面が建物に掛かっていません"
+                    : ""
+            }
+          />
           <Group gap={6}>
             <Text size="xs">高さ</Text>
             <SegmentedControl
@@ -386,5 +430,144 @@ function FloorLabel(props: { text: string; position: [number, number, number]; s
     <sprite position={props.position} scale={[props.size * aspect, props.size, 1]} renderOrder={10}>
       <spriteMaterial map={texture} depthTest={false} transparent />
     </sprite>
+  );
+}
+
+type SectionState = { on: boolean; angleDeg: number; offsetM: number; opacity: number };
+
+/** 縦の断面（FR-3.9）の表示の切り替え、向き、位置、不透明度 */
+function SectionControls(props: {
+  section: SectionState;
+  setSection: (f: (s: SectionState) => SectionState) => void;
+  offsetM: number;
+  offsetRange: [number, number];
+  available: boolean;
+  status: string;
+}) {
+  const { section, setSection } = props;
+  const set = (patch: Partial<SectionState>) => setSection((s) => ({ ...s, ...patch }));
+  return (
+    <Stack gap={4}>
+      <Switch
+        size="xs"
+        label="縦の断面"
+        checked={section.on}
+        disabled={!props.available}
+        onChange={(e) => {
+          const checked = e.currentTarget.checked;
+          set({ on: checked });
+        }}
+      />
+      {section.on && (
+        <>
+          <Group gap={6} wrap="nowrap">
+            <Text size="xs" w={28}>
+              向き
+            </Text>
+            <Slider
+              size="xs"
+              style={{ flex: 1 }}
+              min={0}
+              max={179}
+              step={1}
+              value={section.angleDeg}
+              onChange={(v) => set({ angleDeg: v })}
+              label={(v) => `${v}°`}
+              thumbLabel="断面の向き"
+            />
+            {[0, 90].map((deg) => (
+              <Button
+                key={deg}
+                size="compact-xs"
+                variant={section.angleDeg === deg ? "filled" : "default"}
+                onClick={() => set({ angleDeg: deg })}
+              >
+                {deg}°
+              </Button>
+            ))}
+          </Group>
+          <Group gap={6} wrap="nowrap">
+            <Text size="xs" w={28}>
+              位置
+            </Text>
+            <Slider
+              size="xs"
+              style={{ flex: 1 }}
+              min={props.offsetRange[0]}
+              max={props.offsetRange[1]}
+              step={0.1}
+              value={props.offsetM}
+              onChange={(v) => set({ offsetM: v })}
+              label={(v) => `${v.toFixed(1)} m`}
+              thumbLabel="断面の位置"
+            />
+          </Group>
+          <Group gap={6} wrap="nowrap">
+            <Text size="xs" w={28}>
+              濃さ
+            </Text>
+            <Slider
+              size="xs"
+              style={{ flex: 1 }}
+              min={0.1}
+              max={1}
+              step={0.05}
+              value={section.opacity}
+              onChange={(v) => set({ opacity: v })}
+              label={(v) => `不透明度 ${Math.round(v * 100)}%`}
+              thumbLabel="断面の不透明度"
+            />
+          </Group>
+          <Text size="xs" c="dimmed" aria-label="断面の状態">
+            {props.status}
+          </Text>
+        </>
+      )}
+    </Stack>
+  );
+}
+
+/** 縦の断面のヒートマップを貼った鉛直な四角形。色は床面のヒートマップと同じ対応表にする */
+function SectionMesh(props: {
+  result: Extract<ReturnType<typeof useSectionHeatmap>["result"], { status: "ok" }>;
+  doc: ProjectDoc;
+  heightScale: number;
+  opacity: number;
+}) {
+  const { result, heightScale } = props;
+  const legend = props.doc.settings.legend;
+  const tex = useMemo(() => {
+    const pixels = composeImage(result.radios, result.grid.cols * result.grid.rows, {
+      mode: "rssi",
+      apIds: new Set(),
+      stops: legend.stops,
+      thresholdDbm: legend.goodThresholdDbm,
+      hideBelow: legend.hideBelow,
+    });
+    const t = new THREE.DataTexture(pixels, result.grid.cols, result.grid.rows, THREE.RGBAFormat);
+    t.magFilter = THREE.LinearFilter;
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.needsUpdate = true;
+    return t;
+  }, [result, legend]);
+  const geom = useMemo(() => {
+    const q = sectionQuad(result.grid, heightScale);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(q.positions, 3));
+    g.setAttribute("uv", new THREE.BufferAttribute(q.uvs, 2));
+    return g;
+  }, [result.grid, heightScale]);
+  useEffect(() => () => tex.dispose(), [tex]);
+  useEffect(() => () => geom.dispose(), [geom]);
+  return (
+    <mesh geometry={geom} renderOrder={5}>
+      <meshBasicMaterial
+        map={tex}
+        side={THREE.DoubleSide}
+        transparent
+        opacity={props.opacity}
+        depthWrite={false}
+      />
+    </mesh>
   );
 }

@@ -29,6 +29,8 @@ export function WallLayer(props: {
   walls: readonly WallEntry[];
   materials: Record<string, Material>;
   selection: ReadonlySet<string>;
+  /** 高さの範囲が重なる壁（FR-4.11）。警告の色で縁取る */
+  warned?: ReadonlySet<string>;
   peers: readonly PeerPresence[];
   drafts: WallDrafts;
   px: number;
@@ -71,6 +73,17 @@ export function WallLayer(props: {
         const selected = selection.has(w.id);
         return (
           <Fragment key={w.id}>
+            {props.warned?.has(w.id) && (
+              <Line
+                points={flat(pts)}
+                stroke="#fd7e14"
+                strokeWidth={wallWidth * 3.5}
+                opacity={0.45}
+                dash={[4 * px, 3 * px]}
+                lineCap="round"
+                lineJoin="round"
+              />
+            )}
             {selected && (
               <Line
                 points={flat(pts)}

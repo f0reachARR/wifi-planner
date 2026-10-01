@@ -1,4 +1,5 @@
-import { ProjectDoc, SCHEMA_VERSION } from "./schema.js";
+import { MATERIAL_PRESETS, SLAB_PRESET_KEY, slabPresetId } from "./materials.js";
+import { type Material, ProjectDoc, SCHEMA_VERSION } from "./schema.js";
 
 // 文書のスキーマのマイグレーション（設計書 2.2 節）。
 // 版 n から n + 1 への変換を MIGRATIONS[n] に並べる。
@@ -16,6 +17,25 @@ export const MIGRATIONS: Record<number, Migration> = {
       ),
     ),
   }),
+  // 版 3 で床スラブの材質と、フロアをまたぐ計算の範囲を足した。壁の高さは無ければ既定なので何もしない
+  2: (doc) => {
+    const materials = { ...((doc.materials ?? {}) as Record<string, Material>) };
+    let slabId = slabPresetId(materials);
+    if (!slabId) {
+      slabId = materials[SLAB_PRESET_KEY] ? crypto.randomUUID() : SLAB_PRESET_KEY;
+      materials[slabId] = { ...MATERIAL_PRESETS[SLAB_PRESET_KEY]! };
+    }
+    return {
+      ...doc,
+      settings: { crossFloorRange: null, ...(doc.settings as object) },
+      materials,
+      floors: Object.fromEntries(
+        Object.entries((doc.floors ?? {}) as Record<string, Record<string, unknown>>).map(
+          ([id, floor]) => [id, { slabMaterialId: slabId, ...floor }],
+        ),
+      ),
+    };
+  },
 };
 
 export class UnsupportedSchemaError extends Error {}

@@ -61,8 +61,26 @@ test("フロアの位置合わせ、重ね表示、疑似 3D ビュー", async (
 
   // 1F を重ねる（FR-3.3）
   await page.getByRole("switch", { name: "1F を重ねる" }).check();
-  // ヒートマップの計算も終わっている（AP のないフロアでも「計算中」のままにならない）
+  // 2F に AP は無いが、1F の AP が床スラブを通して届く（FR-7.5、FR-7.6）
+  await expect(page.getByText(/1 本のラジオを計算済み/)).toBeVisible();
+  // 他のフロアの AP を含めない設定にすると、2F では計算するラジオが無くなる（FR-7.8）
+  const select = (name: string) =>
+    page.getByRole("textbox", { name }).or(page.getByRole("combobox", { name }));
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  await select("計算に含める他のフロアの AP").click();
+  await page.getByRole("option", { name: "同じフロアだけ" }).click();
+  await page.keyboard.press("Escape");
   await expect(page.getByText(/0 本のラジオを計算済み/)).toBeVisible();
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  await select("計算に含める他のフロアの AP").click();
+  await page.getByRole("option", { name: "全フロア" }).click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByText(/1 本のラジオを計算済み/)).toBeVisible();
+  // フロアの床スラブは既定でプリセットの材質になる（FR-3.1）
+  await page.getByRole("button", { name: "2F の操作" }).click();
+  await page.getByRole("menuitem", { name: "設定" }).click();
+  await expect(select("床スラブの材質")).toHaveValue("RC 床スラブ");
+  await page.keyboard.press("Escape");
   await expect(page.getByRole("slider", { name: "1F の不透明度" })).toBeVisible();
 
   // 疑似 3D ビュー（FR-3.4〜3.6）
@@ -88,6 +106,15 @@ test("フロアの位置合わせ、重ね表示、疑似 3D ビュー", async (
   await expect(page.getByLabel("表示中のフロア")).toHaveText(
     "表示中のフロア：1F（床 0 m）、2F（床 3 m）",
   );
+  // 縦の断面（FR-3.9）。1F の AP の電波を、2F まで断面の上で計算する
+  await page.getByRole("switch", { name: "縦の断面" }).check();
+  await expect(page.getByLabel("断面の状態")).toHaveText(/^断面：\d+×\d+ 点、1 本のラジオ$/);
+  await page.getByRole("button", { name: "90°" }).click();
+  await expect(page.getByRole("slider", { name: "断面の向き" })).toHaveAttribute(
+    "aria-valuenow",
+    "90",
+  );
+  await expect(page.getByLabel("断面の状態")).toHaveText(/^断面：\d+×\d+ 点、1 本のラジオ$/);
   if (process.env.SCREENSHOT_DIR) {
     // テクスチャの読み込みを待ってから撮る
     await page.waitForTimeout(1500);

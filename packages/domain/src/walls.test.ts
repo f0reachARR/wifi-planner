@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { Wall } from "./schema.js";
-import { canPlaceOpening, closestOnPolyline, mergeWalls, reverseWall, splitWall } from "./walls.js";
+import {
+  canPlaceOpening,
+  closestOnPolyline,
+  mergeWalls,
+  openingHeightRange,
+  overlappingWalls,
+  reverseWall,
+  splitByOpeningHeight,
+  splitWall,
+  wallHeightRange,
+} from "./walls.js";
 
 const L: Wall = {
   points: [
@@ -87,9 +97,111 @@ describe("壁の結合", () => {
   it("材質が違う壁や、端点を共有しない壁は結合しない", () => {
     const [a, b] = splitWall(L, 5, nextId)!;
     expect(mergeWalls(a, { ...b, materialId: "glass" })).toBeUndefined();
+    expect(mergeWalls(a, { ...b, topM: 1.2 })).toBeUndefined();
+    expect(mergeWalls({ ...a, topM: 1.2 }, { ...b, topM: 1.2 })?.topM).toBe(1.2);
     expect(
       mergeWalls(a, { ...b, points: b.points.map((p) => ({ x: p.x + 1, y: p.y })) }),
     ).toBeUndefined();
+  });
+});
+
+describe("壁の高さ", () => {
+  it("指定が無ければ床から天井まで、開口部は壁と同じ範囲", () => {
+    const wall = wallHeightRange({}, 3);
+    expect(wall).toEqual({ bottom: 0, top: 3 });
+    expect(openingHeightRange({}, wall)).toEqual(wall);
+    expect(wallHeightRange({ bottomM: 2.2, topM: 4.5 }, 3)).toEqual({ bottom: 2.2, top: 4.5 });
+  });
+
+  it("開口部は壁の範囲で切り取り、その上下を壁の材質の部分にする", () => {
+    const wall = { bottom: 0, top: 3 };
+    const door = openingHeightRange({ topM: 2 }, wall);
+    expect(splitByOpeningHeight(wall, door)).toEqual([
+      { range: { bottom: 0, top: 2 }, isOpening: true },
+      { range: { bottom: 2, top: 3 }, isOpening: false },
+    ]);
+    const window = openingHeightRange({ bottomM: 1, topM: 5 }, wall);
+    expect(splitByOpeningHeight(wall, window)).toEqual([
+      { range: { bottom: 0, top: 1 }, isOpening: false },
+      { range: { bottom: 1, top: 3 }, isOpening: true },
+    ]);
+    // 壁の範囲の外にある開口部は無いのと同じ
+    const above = openingHeightRange({ bottomM: 3.5, topM: 4 }, wall);
+    expect(splitByOpeningHeight(wall, above)).toEqual([{ range: wall, isOpening: false }]);
+  });
+});
+
+describe("高さの範囲が重なる壁", () => {
+  const span = (key: string, points: [number, number][], bottom = 0, top = 3) => ({
+    key,
+    points: points.map(([x, y]) => ({ x, y })),
+    range: { bottom, top },
+  });
+
+  it("同じ線の上に重ねた壁で、高さの範囲が重なる組を返す", () => {
+    const pairs = overlappingWalls([
+      span("full", [
+        [0, 0],
+        [10, 0],
+      ]),
+      // 少しずれて逆向きに描いた腰壁
+      span(
+        "low",
+        [
+          [6, 0.02],
+          [2, 0.01],
+        ],
+        0,
+        1.2,
+      ),
+      // 腰壁の上の下がり壁は腰壁と重ならないが、床から天井までの壁とは重なる
+      span(
+        "hanging",
+        [
+          [3, 0],
+          [5, 0],
+        ],
+        2.2,
+        3,
+      ),
+    ]);
+    expect(pairs).toEqual([
+      ["full", "low"],
+      ["full", "hanging"],
+    ]);
+  });
+
+  it("離れた壁、交わるだけの壁、端が接するだけの壁、高さが接するだけの壁は返さない", () => {
+    const base = span("a", [
+      [0, 0],
+      [10, 0],
+    ]);
+    expect(
+      overlappingWalls([
+        base,
+        span("parallel", [
+          [0, 0.2],
+          [10, 0.2],
+        ]),
+        span("crossing", [
+          [5, -1],
+          [5, 1],
+        ]),
+        span("touching", [
+          [10, 0],
+          [15, 0],
+        ]),
+        span(
+          "stacked",
+          [
+            [0, 0],
+            [10, 0],
+          ],
+          3,
+          6,
+        ),
+      ]),
+    ).toEqual([]);
   });
 });
 
