@@ -3,7 +3,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { makeSyntheticPlanPdf } from "@wifi-planner/wall-extraction/fixtures";
 import { ADMIN } from "../playwright.config";
-import { addFloorWithPlan, apiOf, at, click, newUserPage, tool } from "./helpers";
+import { addFloorWithPlan, apiOf, at, click, newUserPage, sidebarTab, tool } from "./helpers";
 
 const PATTERN_CSV = [
   "cut,deg,gain_dbi",
@@ -137,6 +137,42 @@ test("AP モデルの作成、AP の配置と設定、一覧からの一括変�
   await expect(page.getByLabel("置く AP の設置高さ")).toHaveValue("3 m");
   await expect(page.getByLabel("置く AP の方位角")).toHaveValue("45°");
   await expect(page.getByLabel("置く AP のチルト")).toHaveValue("10°");
+
+  // チャネルの自動割り当て（FR-6.6）。近い AP-1 と AP-3（複製）、AP-2 と AP-4 が同じチャネルを使っている
+  await sidebarTab(page, "AP");
+  await page.getByRole("button", { name: "チャネルの自動割り当て" }).click();
+  const planDialog = page.getByRole("dialog");
+  await planDialog.getByText("このフロア", { exact: true }).click();
+  await expect(planDialog.getByRole("combobox", { name: "チャネル幅" })).toHaveValue("80 MHz");
+  await planDialog.getByRole("button", { name: "割り当てを計算" }).click();
+  await expect(planDialog.getByText(/周波数が重なる AP の組：\d+ → 0/)).toBeVisible();
+  await planDialog.getByRole("button", { name: "適用" }).click();
+  await expect(planDialog).toBeHidden();
+  await page.getByRole("button", { name: "AP の一覧" }).click();
+  const channels = await Promise.all(
+    ["AP-1", "AP-2", "AP-3", "AP-4"].map((name) =>
+      page
+        .getByRole("dialog")
+        .getByLabel(`${name} の radio1 のチャネル`, { exact: true })
+        .inputValue(),
+    ),
+  );
+  expect(new Set(channels).size).toBe(4);
+  await page.keyboard.press("Escape");
+  // 1 回の元に戻すで、すべてのラジオが元のチャネルに戻る
+  await page.getByRole("button", { name: "元に戻す" }).click();
+  await page.getByRole("button", { name: "AP の一覧" }).click();
+  for (const [name, channel] of [
+    ["AP-1", "149（国内不可）"],
+    ["AP-2", "36"],
+    ["AP-3", "149（国内不可）"],
+    ["AP-4", "36"],
+  ]) {
+    await expect(
+      page.getByRole("dialog").getByLabel(`${name} の radio1 のチャネル`, { exact: true }),
+    ).toHaveValue(channel!);
+  }
+  await page.keyboard.press("Escape");
 
   if (process.env.SCREENSHOT_DIR) {
     await page.screenshot({ path: `${process.env.SCREENSHOT_DIR}/aps.png` });

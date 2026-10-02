@@ -46,6 +46,7 @@ import {
   IconUsers,
   IconWall,
   IconWand,
+  IconWaveSine,
   IconX,
 } from "@tabler/icons-react";
 import {
@@ -82,6 +83,7 @@ import { AlignFloorsModal } from "./AlignFloorsModal";
 import { ApInspector, MOUNT_OPTIONS, normalizeAzimuth } from "./aps/ApInspector";
 import { type ApEntry, ApLayer } from "./aps/ApLayer";
 import { ApTableModal } from "./aps/ApTableModal";
+import { ChannelPlanModal } from "./aps/ChannelPlanModal";
 import { AreaLayer } from "./areas/AreaLayer";
 import { AreaPanel } from "./areas/AreaPanel";
 import { type AreaEntry, areaStats } from "./areas/stats";
@@ -205,6 +207,7 @@ export function FloorView({
   );
   const { data: library = [] } = useApModels();
   const [showApTable, setShowApTable] = useState(false);
+  const [planningChannels, setPlanningChannels] = useState(false);
 
   /** AP を置く（FR-6.1）。ライブラリのモデルをまだ写していなければ、プロジェクトに写す */
   const placeAp = (p: Vec2): string | undefined => {
@@ -1290,7 +1293,17 @@ export function FloorView({
             </Tabs.Panel>
             <Tabs.Panel value="aps" p="sm">
               <Stack gap="md">
-                <Group justify="flex-end">
+                <Group justify="flex-end" gap={4}>
+                  {!readOnly && (
+                    <Button
+                      size="compact-xs"
+                      variant="subtle"
+                      leftSection={<IconWaveSine size={14} />}
+                      onClick={() => setPlanningChannels(true)}
+                    >
+                      チャネルの自動割り当て
+                    </Button>
+                  )}
                   <Button
                     size="compact-xs"
                     variant="subtle"
@@ -1361,6 +1374,13 @@ export function FloorView({
         onClose={() => setOpenPinId(undefined)}
       />
       <ApTableModal opened={showApTable} onClose={() => setShowApTable(false)} />
+      <ChannelPlanModal
+        opened={planningChannels}
+        onClose={() => setPlanningChannels(false)}
+        floorId={floor.id}
+        selectedApIds={selectedAps}
+        initialBand={band}
+      />
       <PropagationSettingsModal
         opened={editingPropagation}
         onClose={() => setEditingPropagation(false)}
